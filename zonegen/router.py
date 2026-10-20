@@ -1,6 +1,7 @@
 """In-process Valhalla adapter (pyvalhalla Actor) and per-probe evaluation (spec §6.3, §6.4, §6.6)."""
 import json
 
+import h3
 import valhalla
 
 from .classify import FAMILY_KEY_VERSION, Segment, band_index, classify_corridor, haversine_m
@@ -113,6 +114,10 @@ def evaluate(probe: dict) -> dict:
         rec["reasons"].append("snap_failed")
         return rec
     far = sn["dist_m"] > cfg["snap"]["decision_cap_m"]
+    # a cell centre often sits off-road; a road point inside the same hexagon still probes that cell
+    if far and probe["kind"] == "cell" and h3.latlng_to_cell(sn["lat"], sn["lon"], cfg["grid"]["resolution"]) == probe["id"]:
+        far = False
+        rec["reasons"].append("snap_in_cell")
     base = cfg["base"]
     out, e_out = route(base, sn)
     back, e_back = route(sn, base)

@@ -4,7 +4,7 @@ Status: proof of concept for a CEO demo, **pre-kickoff**. This does not change t
 
 | # | Decision | Why |
 |---|---|---|
-| 1 | **Snap cap: 100 m decides, 500 m shadow.** Centroids snapping at 100–500 m are routed and reported, but their cell stays `unknown: snap_far`. | The spec (100 m) and the brief (500 m) conflict. The report shows what the wider cap would add, so the evidence can settle it. |
+| 1 | **Snap rule (revised): a cell probe is accepted within 100 m of the centre, or up to 500 m if the road point lies inside the same hexagon** (`snap_in_cell`). Anything else is `unknown: snap_far`. Hard-case addresses keep the strict 100 m rule. | The seven-location sweep showed 97–100% of 100–500 m snaps land inside their own hexagon: the centre is just off-road. A road point inside the cell still probes that cell; one in the neighbouring cell does not. Approved by the user on 2026-10-21. |
 | 2 | **Snap filter:** `exclude_ramp`, `exclude_tunnel`, `exclude_bridge`, `max_road_class: trunk`. | Stops centroids from snapping onto freeways, ramps or bridge decks. That is the main centroid-probe trap. |
 | 3 | **Distance is primary; time bands are free-flow.** | Valhalla runs here without traffic data. Time bands are a display view computed from the same routes and are never converted from miles. |
 | 4 | **Only the outbound route is traced** (`/trace_attributes`, edge_walk, then walk_or_snap, then `trace_failed`). | The family key is outbound-only (§6.5). The return route only checks coverage and access. That gives 3–4 calls per cell instead of 5. |
@@ -18,6 +18,7 @@ Status: proof of concept for a CEO demo, **pre-kickoff**. This does not change t
 | 12 | **Cells outside the extract polygon are `data_unavailable`** and are never routed. | Spec §6.1: missing graph data is not "no road". At South Lake Tahoe, 6,185 of 11,032 "no road" cells were really Nevada. |
 | 13 | **The run ID includes a hash of the router, classifier and refs code.** The refs cache is keyed the same way. | A code change can never silently resume results produced by older code. |
 | 14 | **`snapshot.json` is written by `build-tiles`, not by the download.** `run` refuses to start if it names a different PBF than the config. | The snapshot record always describes the routing graph that was actually built. |
+| 15 | **The signed direction comes from the relation's `direction` tag (north/N…) before the member role.** Roles `forward`/`backward` carry no cardinal direction. | California splits most freeways into north/south relations whose members are `forward`. Letting `forward` win, plus clashes with the undirected parent relation, threw the signed direction away, so 33–47% of compass-guessed directions sat within 15° of a quadrant edge. |
 
 ## Draft accuracy definitions (needed before any 99%/95% claim)
 

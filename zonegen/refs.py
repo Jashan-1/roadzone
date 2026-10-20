@@ -8,6 +8,19 @@ import osmium
 from .classify import normalize_ref
 
 NETWORK_PREFIX = {"US:I": "I", "US:US": "US", "US:CA": "CA"}
+CARDINAL = {k: v for v in ("north", "south", "east", "west") for k in (v, v[0])}  # "north" and "n" -> "north"
+
+
+def signed_direction(member_role: str, rel_direction: str) -> str | None:
+    """Cardinal direction a member way carries, or None if the relation says nothing signed.
+
+    A directional relation's `direction` tag (north/N...) wins: its members are usually role
+    `forward`, which only says the way is used along its drawing, not which way that is.
+    """
+    for v in (rel_direction, member_role):
+        if v.strip().lower() in CARDINAL:
+            return CARDINAL[v.strip().lower()]
+    return None
 
 
 def build_ref_index(pbf: Path) -> dict:
@@ -26,7 +39,7 @@ def build_ref_index(pbf: Path) -> dict:
             for m in obj.members:
                 if m.type == "w":
                     rel_refs.setdefault(m.ref, set()).add(ref)
-                    role = m.role or rel_direction
+                    role = signed_direction(m.role, rel_direction)
                     if role:
                         prev = roles.setdefault(m.ref, {}).get(ref)
                         # a two-way way in both directional relations has no single signed direction

@@ -138,8 +138,11 @@ def write_outputs(out, cfg, meta, cells, hard_out, hard):
                  + [[f"cells: {k}", v] for k, v in sorted(status.items())]),
           "", "## Snap distance histogram (centroid → nearest permitted edge)", "",
           _table(["bucket", "cells"], _hist(cells)),
-          "", f"**100 m vs 500 m:** {len(shadow)} cells snapped at 100–500 m. They were routed but are "
-          f"`unknown: snap_far` at the 100 m decision cap. At 500 m their bands would be: "
+          "", f"**Snap rule:** a cell's probe is accepted within {cfg['snap']['decision_cap_m']} m of its centre, "
+          f"or anywhere up to {cfg['snap']['shadow_cap_m']} m if the road point is inside the cell "
+          f"({sum('snap_in_cell' in r['reasons'] for r in cells.values())} cells, reason `snap_in_cell`). "
+          f"{len(shadow)} cells snapped outside their cell; they were routed but stay `unknown: snap_far`. "
+          f"Their shadow bands would be: "
           + (", ".join(f"{k}: {v}" for k, v in sorted(shadow_bands.items(), key=str)) or "none") + ".",
           "", "## Corridor evidence (covered, post-Hub cells)", "",
           _table(["corridor status", "cells"], sorted(cstat.items())), "",

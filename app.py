@@ -9,6 +9,7 @@ from pathlib import Path
 import pydeck as pdk
 import streamlit as st
 import yaml
+from collections import Counter
 
 from zonegen.classify import band_edges
 from zonegen.pipeline import MAX_CALLS_PER_PROBE, in_boundary, load_boundary, load_config
@@ -20,6 +21,7 @@ PALETTE = [(31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40), (148, 1
 BANDS = [(55, 65, 81), (230, 57, 70), (247, 140, 38), (240, 200, 30), (60, 170, 80), (0, 160, 170),
          (70, 110, 220), (150, 80, 200), (230, 100, 180), (140, 100, 60), (130, 140, 40), (120, 120, 120)]
 GREY, PALE = (160, 160, 165), (235, 235, 238)
+MIN_LEGEND_CELLS = 10  # legend lists corridors at least this big; the map still shows every one
 TIP_FIELDS = ("h3", "zone_code", "status", "m_dist_mi", "m_time_min", "family_key", "direction_method",
               "snap_dist_m", "reason_codes")
 
@@ -171,9 +173,16 @@ with left:
         for c in cells:
             if c.get("display_corridor_id") and c.get("family_key") and c.get("hatch_status") != "hatched":
                 fams.setdefault(c["display_corridor_id"], c["family_key"])
+        size = Counter(c.get("display_corridor_id") for c in cells if c.get("hatch_status") != "hatched")
+        small = [cid for cid in corridors if cid not in ("HUB", "L") and size[cid] < MIN_LEGEND_CELLS]
         for cid in corridors:
+            if cid in small:
+                continue  # display only: tiny corridors keep their letter on the map and in the tooltip
             label = "Hub (zone 0)" if cid == "HUB" else "Local roads" if cid == "L" else f"{cid}: {fams.get(cid, '')}"
             st.markdown(f"<span style='color:rgb{ccol[cid]}'>■</span> {html.escape(label)}", unsafe_allow_html=True)
+        if small:
+            st.caption(f"+ {len(small)} small corridors (under {MIN_LEGEND_CELLS} cells each): "
+                       + ", ".join(f"{cid} ({fams.get(cid, '?')})" for cid in small))
     else:
         cfg = run_cfg(run) or {"coverage": {"limit_miles": 50, "hub_miles": 5, "band_step_miles": 10},
                                "time_view": {"limit_minutes": 60, "hub_minutes": 15, "band_step_minutes": 15}}

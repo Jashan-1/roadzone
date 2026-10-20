@@ -1,4 +1,5 @@
 """Status precedence in router.evaluate, with Valhalla replaced by canned answers (no tiles needed)."""
+import h3
 import pytest
 
 from zonegen import router
@@ -11,8 +12,11 @@ CFG = {
     "coverage_m": {"metric": "distance", "limit": 50 * MI, "hub": 5 * MI, "step": 10 * MI},
     "time_view_s": {"limit": 3600, "hub": 900, "step": 900},
     "backbone_classes": ["motorway", "trunk", "primary"],
+    "grid": {"resolution": 8},
 }
-PROBE = {"id": "c", "kind": "cell", "lat": 37.1, "lon": -122.1}
+_CELL = h3.latlng_to_cell(37.1, -122.1, 8)
+PROBE = {"id": _CELL, "kind": "cell", "lat": h3.cell_to_latlng(_CELL)[0], "lon": h3.cell_to_latlng(_CELL)[1]}
+IN_CELL, OUT_OF_CELL = 0.0018, 0.0060  # ~200 m (inside the cell) and ~670 m (past any res-8 cell edge)
 
 
 @pytest.fixture
@@ -39,13 +43,13 @@ def fake(monkeypatch):
 
 
 def test_far_snap_beyond_limit_is_unknown_not_outside(fake):
-    fake(0.0027, 60.0)  # ~300 m snap, 60 road miles
+    fake(OUT_OF_CELL, 60.0)
     rec = router.evaluate(PROBE)
     assert rec["status"] == "unknown" and "snap_far" in rec["reasons"]
 
 
 def test_far_snap_without_path_is_unknown_not_unreachable(fake):
-    fake(0.0027, 442)
+    fake(OUT_OF_CELL, 442)
     rec = router.evaluate(PROBE)
     assert rec["status"] == "unknown" and "snap_far" in rec["reasons"]
 
@@ -72,3 +76,15 @@ def test_routes_use_the_snap_search_filter(fake):
     routes = [req for action, req in sent if action == "route"]
     assert routes and all(loc.get("search_filter") == CFG["snap"]["search_filter"]
                           for req in routes for loc in req["locations"])
+
+
+def test_far_snap_inside_its_cell_is_accepted(fake):
+    fake(IN_CELL, 2.0)
+    rec = router.evaluate(PROBE)
+    assert rec["status"] == "centroid_sampled" and "snap_in_cell" in rec["reasons"]
+
+
+def test_far_snap_for_an_address_is_never_accepted(fake):
+    fake(IN_CELL, 2.0)
+    rec = router.evaluate({**PROBE, "id": "hc:x", "kind": "hard_case"})
+    assert rec["status"] == "unknown" and "snap_far" in rec["reasons"]
