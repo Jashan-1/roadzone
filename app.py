@@ -1,9 +1,12 @@
 """RoadZone cell-map viewer: uv run streamlit run app.py"""
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pydeck as pdk
 import streamlit as st
+import yaml
 
 PALETTE = [(31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40), (148, 103, 189), (140, 86, 75),
            (227, 119, 194), (23, 190, 207), (188, 189, 34), (57, 59, 121), (99, 121, 57), (140, 109, 49),
@@ -22,20 +25,65 @@ def load(run: str):
     return fc["properties"], cells, base["geometry"]["coordinates"]
 
 
-runs = sorted(p.name for p in Path("runs").iterdir() if (p / "cells.geojson").exists())
+@st.cache_data
+def extract_bounds():
+    """Lat/lon box of the pinned OSM extract; routing only works inside it."""
+    import osmium
+    from zonegen.pipeline import load_config
+    pbf = load_config(Path("configs/stevens_creek.yaml"))["data"]["pbf"]
+    box = osmium.io.Reader(pbf, osmium.osm.osm_entity_bits.NOTHING).header().box()
+    return box.bottom_left.lat, box.bottom_left.lon, box.top_right.lat, box.top_right.lon
+
+
+with st.sidebar.form("new_run"):
+    st.subheader("New run")
+    lat = st.number_input("Base latitude", value=37.32305, format="%.5f")
+    lon = st.number_input("Base longitude", value=-121.97000, format="%.5f")
+    limit = st.number_input("Max coverage (road miles)", 5.0, 80.0, 50.0, 5.0)
+    hub = st.number_input("Hub size (road miles)", 1.0, 40.0, 5.0, 1.0)
+    step = st.number_input("Band size (road miles)", 1.0, 50.0, 10.0, 1.0)
+    go = st.form_submit_button("Generate zones")
+if go:
+    s, w, n, e = extract_bounds()
+    if not (s <= lat <= n and w <= lon <= e):
+        st.sidebar.error(f"Outside the loaded map data (lat {s:.1f}–{n:.1f}, lon {w:.1f}–{e:.1f}).")
+    elif hub >= limit:
+        st.sidebar.error("Hub must be smaller than the max coverage.")
+    else:
+        cfg = yaml.safe_load(Path("configs/stevens_creek.yaml").read_text())
+        cfg.update(label="custom", hard_cases=None)
+        cfg["base"] = {"lat": lat, "lon": lon, "confirmed": False}
+        cfg["coverage"].update(limit_miles=limit, hub_miles=hub, band_step_miles=step)
+        # road miles >= crow-flies miles, so this extent provably contains every covered cell
+        cfg["grid"]["extent_radius_km"] = round(limit * 1.609344 + 2, 1)
+        path = Path("configs/custom") / f"{lat:.5f}_{lon:.5f}_{limit:g}_{hub:g}_{step:g}.yaml"
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(yaml.safe_dump(cfg, sort_keys=False))
+        with st.spinner(f"Routing every cell out and back (~{limit / 50 * limit / 50 * 2.5:.0f} min)…"):
+            proc = subprocess.run([sys.executable, "-m", "zonegen", "run", str(path)], capture_output=True, text=True)
+        if proc.returncode:
+            st.sidebar.error(proc.stderr[-1500:])
+        else:
+            st.session_state["run"] = Path(proc.stdout.strip().splitlines()[-1]).name
+            load.clear()
+
+runs = sorted((p for p in Path("runs").iterdir() if (p / "cells.geojson").exists()), key=lambda p: p.stat().st_mtime)
+runs = [p.name for p in runs]
 if not runs:
     st.error("No runs found. Run `uv run python -m zonegen run configs/stevens_creek.yaml` first.")
     st.stop()
-run = st.sidebar.selectbox("Run", runs, index=len(runs) - 1)
+default = st.session_state.get("run", runs[-1])
+run = st.sidebar.selectbox("Show run", runs, index=runs.index(default) if default in runs else len(runs) - 1)
 meta, cells, base = load(run)
 
-st.title("RoadZone: Stevens Creek")
+st.title("RoadZone cell map")
 st.warning("POC, pre-kickoff. Not a published plan. Base point is a placeholder, not the dealer's van entrance. "
            "Time bands are free-flow (no traffic)." if not meta.get("base_confirmed") else meta["notice"])
 
 mode = st.sidebar.radio("Colour by", ["Zones", "Road-mile bands", "Free-flow minute bands"])
 show_out = st.sidebar.checkbox("Show outside / unreachable cells", value=False)
-show_unknown = st.sidebar.checkbox("Show unknown cells", value=True)
+show_unknown = st.sidebar.checkbox("Show unknown cells (near a road)", value=True)
+show_noroad = st.sidebar.checkbox("Show no-road cells (water, wilderness)", value=False)
 
 corridors = sorted({c["display_corridor_id"] for c in cells if c.get("display_corridor_id")})
 ccol = {cid: (82, 82, 91) if cid == "HUB" else (194, 168, 120) if cid == "L" else PALETTE[i % len(PALETTE)]
@@ -45,7 +93,8 @@ rows = []
 for c in cells:
     if c["status"] in ("outside_coverage", "unreachable") and not show_out:
         continue
-    if c["status"] == "unknown" and not show_unknown:
+    noroad = "snap_failed" in (c.get("reason_codes") or "")
+    if c["status"] == "unknown" and not (show_noroad if noroad else show_unknown):
         continue
     uncertain = c.get("hatch_status") == "hatched"
     if c["status"] in ("outside_coverage", "unreachable"):
@@ -55,12 +104,11 @@ for c in cells:
     else:
         b = c.get("band") if mode == "Road-mile bands" else c.get("band_time")
         rgb = BANDS[b] if b is not None else GREY
-    # pydeck can't hatch: uncertain cells are faint fills with a dark outline instead
-    rows.append({**{k: ("" if v is None else v) for k, v in c.items()},
-                 "fill": [*rgb, 60 if uncertain else 170], "line": [40, 40, 40, 200] if uncertain else [0, 0, 0, 0]})
+    # pydeck can't hatch: uncertain cells are drawn faint instead (outlines turn the map black when zoomed out)
+    rows.append({**{k: ("" if v is None else v) for k, v in c.items()}, "fill": [*rgb, 50 if uncertain else 180]})
 
-layer = pdk.Layer("H3HexagonLayer", rows, get_hexagon="h3", get_fill_color="fill", get_line_color="line",
-                  line_width_min_pixels=1, extruded=False, pickable=True, auto_highlight=True)
+layer = pdk.Layer("H3HexagonLayer", rows, get_hexagon="h3", get_fill_color="fill", stroked=False,
+                  extruded=False, pickable=True, auto_highlight=True)
 base_layer = pdk.Layer("ScatterplotLayer", [{"pos": base}], get_position="pos", get_radius=400,
                        get_fill_color=[0, 0, 0], pickable=False)
 tooltip = {"html": "<b>{zone_code}</b> {status}<br/>{m_dist_mi} mi · {m_time_min} free-flow min<br/>"
@@ -85,7 +133,7 @@ with left:
                   else ["0–15 min Hub", "15–30", "30–45", "45–60 min"])
         for i, l in enumerate(labels):
             st.markdown(f"<span style='color:rgb{BANDS[i]}'>■</span> Band {i}: {l}", unsafe_allow_html=True)
-    st.caption("Faint, outlined cells = unknown / mixed / needs review (display colour only, not an assignment).")
+    st.caption("Faint cells = unknown / mixed / needs review (display colour only, not an assignment).")
 with right:
     st.subheader("Cell counts")
     counts = {}
