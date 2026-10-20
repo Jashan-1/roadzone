@@ -118,10 +118,9 @@ def _family_letters(cfg: dict, recs: list[dict]) -> dict:
         vecs[fk][0] += math.sin(br)
         vecs[fk][1] += math.cos(br)
     order = sorted(vecs, key=lambda k: (math.degrees(math.atan2(*vecs[k])) % 360, k))
-    letters = {}
-    for i, fk in enumerate(order):
-        letters[fk] = (chr(65 + i // 26 - 1) if i >= 26 else "") + chr(65 + i % 26)
-    return letters
+    alphabet = "ABCDEFGHIJKMNOPQRSTUVWXYZ"  # no "L": reserved for local-road zones
+    n = len(alphabet)
+    return {fk: (alphabet[i // n - 1] if i >= n else "") + alphabet[i % n] for i, fk in enumerate(order)}
 
 
 def _zone(rec: dict, letters: dict) -> tuple[str | None, str | None]:
