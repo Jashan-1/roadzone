@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RoadZone Cell Map</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  :root { --bg: #fff; --fg: #1d1d1f; --muted: #6b6b70; --line: #e3e3e6; --accent: #1f6feb; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #18181b; --fg: #ececf0; --muted: #a0a0a8; --line: #33333a; --accent: #6ea8ff; } }
+  html, body { margin: 0; height: 100%; font: 14px/1.4 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  #map { position: absolute; inset: 0; }
+  .panel { position: absolute; top: 12px; left: 12px; width: min(340px, calc(100% - 24px)); max-height: calc(100% - 24px);
+           overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+           box-shadow: 0 4px 18px rgb(0 0 0 / .12); box-sizing: border-box; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .notice { font-size: 12px; color: #9a3412; background: #fff7ed; border-radius: 6px; padding: 6px 8px; margin: 6px 0 10px; }
+  @media (prefers-color-scheme: dark) { .notice { color: #fdba74; background: #3b2412; } }
+  .modes { display: flex; gap: 4px; margin-bottom: 10px; }
+  .modes button { flex: 1; border: 1px solid var(--line); background: transparent; color: var(--fg); border-radius: 6px;
+                  padding: 6px 4px; cursor: pointer; font: inherit; font-size: 13px; }
+  .modes button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .legend div { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 2px 0; }
+  .sw { width: 14px; height: 14px; border-radius: 3px; flex: none; border: 1px solid rgb(0 0 0 / .15); }
+  .hatch { background: repeating-linear-gradient(45deg, #999 0 2px, transparent 2px 5px); }
+  #inspect { font-size: 12px; margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+  #inspect table { border-collapse: collapse; width: 100%; }
+  #inspect td { padding: 1px 4px; vertical-align: top; word-break: break-word; }
+  #inspect td:first-child { color: var(--muted); white-space: nowrap; }
+  .muted { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="panel">
+  <h1>RoadZone: Stevens Creek</h1>
+  <div class="muted" id="runid">loading…</div>
+  <div class="notice" id="notice">POC, pre-kickoff. Not a published plan.</div>
+  <div class="modes" role="group" aria-label="Colour by">
+    <button data-mode="zones" aria-pressed="true">Zones</button>
+    <button data-mode="band" aria-pressed="false">Road miles</button>
+    <button data-mode="band_time" aria-pressed="false">Free-flow min</button>
+  </div>
+  <div class="legend" id="legend"></div>
+  <div id="inspect" class="muted">Click a cell to see its evidence.</div>
+</div>
+<script>
+const PALETTE = ["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#17becf","#bcbd22","#7f7f7f",
+                 "#393b79","#637939","#8c6d31","#843c39","#7b4173","#3182bd"];
+const BANDS = ["#08306b","#2171b5","#4292c6","#6baed6","#9ecae1","#c6dbef"];
+const params = new URLSearchParams(location.search);
+const run = params.get("run");
+const src = params.get("src") || (run ? `../runs/${run}/cells.geojson` : "cells.geojson");
+
+const map = new maplibregl.Map({
+  container: "map", center: [-121.97, 37.32], zoom: 8.6,
+  style: { version: 8, sources: { osm: { type: "raster", tileSize: 256,
+    tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+    attribution: "© OpenStreetMap contributors (ODbL)" } },
+    layers: [{ id: "osm", type: "raster", source: "osm", paint: { "raster-saturation": -0.6, "raster-opacity": 0.85 } }] }
+});
+
+function hatchImage() {
+  const c = document.createElement("canvas"); c.width = c.height = 8;
+  const g = c.getContext("2d"); g.strokeStyle = "rgba(0,0,0,0.55)"; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(0, 8); g.lineTo(8, 0); g.moveTo(-2, 2); g.lineTo(2, -2); g.moveTo(6, 10); g.lineTo(10, 6); g.stroke();
+  return g.getImageData(0, 0, 8, 8);
+}
+
+let corridorColors = {};
+function zoneColorExpr() {
+  const m = ["match", ["coalesce", ["get", "display_corridor_id"], "_"]];
+  for (const [id, col] of Object.entries(corridorColors)) m.push(id, col);
+  m.push("#d4d4d8");
+  return ["case", ["in", ["get", "status"], ["literal", ["outside_coverage", "unreachable"]]], "#f4f4f5", m];
+}
+function bandExpr(key) {
+  const m = ["match", ["coalesce", ["get", key], -1]];
+  BANDS.forEach((c, i) => m.push(i, c));
+  m.push("#f4f4f5");
+  return m;
+}
+
+function legend(mode, meta) {
+  const el = document.getElementById("legend"); el.innerHTML = "";
+  const row = (col, label, cls = "") => { const d = document.createElement("div");
+    d.innerHTML = `<span class="sw ${cls}" style="background-color:${col}"></span><span></span>`;
+    d.lastChild.textContent = label; el.appendChild(d); };
+  if (mode === "zones") {
+    for (const [id, col] of Object.entries(corridorColors)) row(col, id === "HUB" ? "Hub (zone 0)" : id === "L" ? "Local roads" : `Corridor ${id}: ${meta[id] || ""}`);
+  } else {
+    const unit = mode === "band" ? ["0–5 mi Hub", "5–15", "15–25", "25–35", "35–45", "45–50 mi"]
+                                 : ["0–15 min Hub", "15–30", "30–45", "45–60 min"];
+    unit.forEach((l, i) => row(BANDS[i], (i ? `Band ${i}: ` : "") + l));
+  }
+  row("#d4d4d8", "Unknown / mixed / needs review (hatched)", "hatch");
+  row("#f4f4f5", "Outside coverage or unreachable");
+}
+
+function setMode(mode, meta) {
+  document.querySelectorAll(".modes button").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === mode));
+  map.setPaintProperty("cells", "fill-color", mode === "zones" ? zoneColorExpr() : bandExpr(mode));
+  map.setLayoutProperty("labels", "visibility", mode === "zones" ? "visible" : "none");
+  legend(mode, meta);
+}
+
+map.on("load", async () => {
+  const data = await (await fetch(src)).json();
+  const p = data.properties || {};
+  document.getElementById("runid").textContent = `${p.run_id || src} · ${p.family_key_version || ""}`;
+  if (p.base_confirmed === false) document.getElementById("notice").textContent =
+    "POC, pre-kickoff. Base point is a placeholder, not the dealer's van entrance. Not a published plan. Time bands are free-flow.";
+  const meta = {}, ids = new Set();
+  for (const f of data.features) {
+    const q = f.properties;
+    if (q.display_corridor_id) ids.add(q.display_corridor_id);
+    if (q.display_corridor_id && q.family_key && !q.hatch_status?.startsWith("hatched")) meta[q.display_corridor_id] = q.family_key;
+  }
+  [...ids].sort().forEach((id, i) => corridorColors[id] = id === "HUB" ? "#52525b" : id === "L" ? "#c2a878" : PALETTE[i % PALETTE.length]);
+  map.addImage("hatch", hatchImage());
+  map.addSource("cells", { type: "geojson", data });
+  map.addLayer({ id: "cells", type: "fill", source: "cells", filter: ["==", ["geometry-type"], "Polygon"],
+                 paint: { "fill-color": zoneColorExpr(), "fill-opacity": 0.55 } });
+  map.addLayer({ id: "hatch", type: "fill", source: "cells", filter: ["==", ["get", "hatch_status"], "hatched"],
+                 paint: { "fill-pattern": "hatch" } });
+  map.addLayer({ id: "labels", type: "symbol", source: "cells", minzoom: 11,
+                 filter: ["all", ["==", ["geometry-type"], "Polygon"], ["has", "zone_code"]],
+                 layout: { "text-field": ["get", "zone_code"], "text-size": 10 },
+                 paint: { "text-color": "#111", "text-halo-color": "#fff", "text-halo-width": 1 } });
+  const base = data.features.find(f => f.id === "base");
+  if (base) new maplibregl.Marker({ color: "#111" }).setLngLat(base.geometry.coordinates)
+    .setPopup(new maplibregl.Popup().setText(p.base_confirmed ? "Base entrance" : "Base (placeholder, unconfirmed)")).addTo(map);
+  document.querySelectorAll(".modes button").forEach(b => b.onclick = () => setMode(b.dataset.mode, meta));
+  legend("zones", meta);
+  map.on("click", "cells", e => {
+    const q = e.features[0].properties, t = document.createElement("table");
+    const keys = ["h3","status","zone_code","band","band_time","m_dist_mi","m_time_min","family_key","direction",
+                  "direction_method","dwell_s","snap_dist_m","reason_codes","candidate_zones","display_basis","verification_required"];
+    for (const k of keys) if (q[k] !== undefined && q[k] !== null && q[k] !== "null") {
+      const r = t.insertRow(); r.insertCell().textContent = k; r.insertCell().textContent = q[k];
+    }
+    const box = document.getElementById("inspect"); box.className = ""; box.replaceChildren(t);
+  });
+  map.on("mouseenter", "cells", () => map.getCanvas().style.cursor = "pointer");
+  map.on("mouseleave", "cells", () => map.getCanvas().style.cursor = "");
+});
+</script>
+</body>
+</html>

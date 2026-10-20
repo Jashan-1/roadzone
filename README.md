@@ -177,15 +177,19 @@ The later milestones are proposed development phases, not completed deliverables
 
 ## Running the Project
 
-Setup instructions will be added once the initial implementation and dependency versions are finalized.
+Requires [uv](https://docs.astral.sh/uv/) and about 12 GB of free RAM for the tile build. Docker is not needed: Valhalla runs in-process via `pyvalhalla`.
 
-The intended workflow is:
+```sh
+uv sync                                                    # Python 3.12 + pinned deps
+./scripts/fetch_data.sh                                    # pinned Geofabrik NorCal snapshot -> data/
+uv run python -m zonegen build-tiles configs/stevens_creek.yaml
+uv run pytest                                              # classifier unit tests (no router needed)
+uv run python -m zonegen run configs/stevens_creek.yaml --max-probes 200   # smoke test
+uv run python -m zonegen run configs/stevens_creek.yaml    # full run; resumable
+python3 -m http.server 8000   # then open http://localhost:8000/viewer/?run=<run_id>
+```
 
-1. Configure the target origin and classification thresholds.
-2. Start or connect to the pinned Valhalla routing environment.
-3. Run the zone-generation pipeline.
-4. Inspect the GeoJSON output and diagnostic reports.
-5. Review failed and ambiguous cases against the validation dataset.
+Each run writes `runs/<run_id>/cells.geojson`, `failure_report.md` and `hard_cases_results.csv`. The run ID is a hash of the config, the snapshot and the classifier version, so rerunning resumes, and `--fresh` starts over. Decisions and draft accuracy definitions are in [docs/decisions.md](docs/decisions.md).
 
 ## Data and Reproducibility
 
