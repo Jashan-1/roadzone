@@ -39,6 +39,7 @@ def extract_bounds():
 
 with st.sidebar.form("new_run"):
     st.subheader("New run")
+    name = st.text_input("Run name", placeholder="e.g. Santa Rosa dealership")
     lat = st.number_input("Base latitude", value=37.32305, format="%.5f")
     lon = st.number_input("Base longitude", value=-121.97000, format="%.5f")
     limit = st.number_input("Max coverage (road miles)", 5.0, 80.0, 50.0, 5.0)
@@ -72,6 +73,8 @@ elif go:
             st.sidebar.error(proc.stderr[-1500:])
         else:
             st.session_state["run"] = Path(proc.stdout.strip().splitlines()[-1]).name
+            if name.strip():
+                (Path("runs") / st.session_state["run"] / "name.txt").write_text(name.strip())
             load.clear()
 
 runs = sorted((p for p in Path("runs").iterdir() if (p / "cells.geojson").exists()), key=lambda p: p.stat().st_mtime)
@@ -80,7 +83,22 @@ if not runs:
     st.error("No runs found. Run `uv run python -m zonegen run configs/stevens_creek.yaml` first.")
     st.stop()
 default = st.session_state.get("run", runs[-1])
-run = st.sidebar.selectbox("Show run", runs, index=runs.index(default) if default in runs else len(runs) - 1)
+
+
+def run_label(rid: str) -> str:
+    """Friendly name (runs/<id>/name.txt) plus the coverage settings, falling back to the run ID."""
+    f = Path("runs") / rid / "name.txt"
+    name = f.read_text().strip() if f.exists() else rid
+    try:
+        cfg_file = json.loads((Path("runs") / rid / "run_meta.json").read_text())["config"]
+        c = yaml.safe_load(Path(cfg_file).read_text())["coverage"]
+        return f"{name} · {c['limit_miles']:g} mi, hub {c['hub_miles']:g}, bands {c['band_step_miles']:g}"
+    except (OSError, KeyError, ValueError):
+        return name
+
+
+run = st.sidebar.selectbox("Show run", runs, index=runs.index(default) if default in runs else len(runs) - 1,
+                           format_func=run_label)
 meta, cells, base = load(run)
 
 st.title("RoadZone cell map")
