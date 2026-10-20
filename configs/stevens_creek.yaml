@@ -29,8 +29,8 @@ backbone_classes: [motorway, trunk, primary]
 request_budget: 130000  # Valhalla calls; at most 4 per cell (locate, out, back, trace) plus one trace retry
 workers: 10
 data:
-  pbf: data/norcal-261018.osm.pbf
+  pbf: data/california-261018.osm.pbf
   snapshot: data/snapshot.json
   valhalla_config: data/valhalla.json
-  refs_cache: data/refs.json
+  refs_cache: data/refs-california-261018.json
 hard_cases: tests/hard_cases.yaml

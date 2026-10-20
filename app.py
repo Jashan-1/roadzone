@@ -1,5 +1,6 @@
 """RoadZone cell-map viewer: uv run streamlit run app.py"""
 import json
+import math
 import subprocess
 import sys
 from pathlib import Path
@@ -7,6 +8,8 @@ from pathlib import Path
 import pydeck as pdk
 import streamlit as st
 import yaml
+
+from zonegen.pipeline import load_config
 
 PALETTE = [(31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40), (148, 103, 189), (140, 86, 75),
            (227, 119, 194), (23, 190, 207), (188, 189, 34), (57, 59, 121), (99, 121, 57), (140, 109, 49),
@@ -29,7 +32,6 @@ def load(run: str):
 def extract_bounds():
     """Lat/lon box of the pinned OSM extract; routing only works inside it."""
     import osmium
-    from zonegen.pipeline import load_config
     pbf = load_config(Path("configs/stevens_creek.yaml"))["data"]["pbf"]
     box = osmium.io.Reader(pbf, osmium.osm.osm_entity_bits.NOTHING).header().box()
     return box.bottom_left.lat, box.bottom_left.lon, box.top_right.lat, box.top_right.lon
@@ -43,7 +45,10 @@ with st.sidebar.form("new_run"):
     hub = st.number_input("Hub size (road miles)", 1.0, 40.0, 5.0, 1.0)
     step = st.number_input("Band size (road miles)", 1.0, 50.0, 10.0, 1.0)
     go = st.form_submit_button("Generate zones")
-if go:
+if go and not (Path("data/valhalla_tiles").exists() and
+               Path(load_config(Path("configs/stevens_creek.yaml"))["data"]["pbf"]).exists()):
+    st.sidebar.error("Map data is still downloading or building. Try again when it finishes.")
+elif go:
     s, w, n, e = extract_bounds()
     if not (s <= lat <= n and w <= lon <= e):
         st.sidebar.error(f"Outside the loaded map data (lat {s:.1f}–{n:.1f}, lon {w:.1f}–{e:.1f}).")
@@ -56,6 +61,8 @@ if go:
         cfg["coverage"].update(limit_miles=limit, hub_miles=hub, band_step_miles=step)
         # road miles >= crow-flies miles, so this extent provably contains every covered cell
         cfg["grid"]["extent_radius_km"] = round(limit * 1.609344 + 2, 1)
+        # budget scales with area: ~0.737 km² per res-8 cell, at most 5 router calls per cell
+        cfg["request_budget"] = int(5 * math.pi * cfg["grid"]["extent_radius_km"] ** 2 / 0.737 * 1.1)
         path = Path("configs/custom") / f"{lat:.5f}_{lon:.5f}_{limit:g}_{hub:g}_{step:g}.yaml"
         path.parent.mkdir(exist_ok=True)
         path.write_text(yaml.safe_dump(cfg, sort_keys=False))

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Download the pinned Geofabrik NorCal snapshot and record its checksum.
+# Download a pinned Geofabrik snapshot and record its checksum.
+# Usage: ./scripts/fetch_data.sh [path under north-america/us/, default california-261018]
 set -euo pipefail
-SNAPSHOT="${1:-norcal-261018}"
+REGION="${1:-california-261018}"
+SNAPSHOT="$(basename "$REGION")"
 cd "$(dirname "$0")/../data"
-[ -f "$SNAPSHOT.osm.pbf" ] || curl -fL -o "$SNAPSHOT.osm.pbf.part" \
-  "https://download.geofabrik.de/north-america/us/california/$SNAPSHOT.osm.pbf" && \
-  { [ -f "$SNAPSHOT.osm.pbf" ] || mv "$SNAPSHOT.osm.pbf.part" "$SNAPSHOT.osm.pbf"; }
+[ -f "$SNAPSHOT.osm.pbf" ] || { curl -fL -o "$SNAPSHOT.osm.pbf.part" \
+  "https://download.geofabrik.de/north-america/us/$REGION.osm.pbf" && mv "$SNAPSHOT.osm.pbf.part" "$SNAPSHOT.osm.pbf"; }
 printf '{"pbf": "%s.osm.pbf", "sha256": "%s"}\n' "$SNAPSHOT" \
   "$(shasum -a 256 "$SNAPSHOT.osm.pbf" | cut -d' ' -f1)" > snapshot.json
 cat snapshot.json
