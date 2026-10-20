@@ -2,6 +2,7 @@
 import hashlib
 import json
 import math
+import threading
 import time
 from collections import defaultdict
 from multiprocessing import Pool
@@ -9,9 +10,11 @@ from pathlib import Path
 
 import h3
 import yaml
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union
+from shapely.prepared import prep
 
-from . import router
+from . import classify, refs as refs_mod, router
 from .classify import FAMILY_KEY_VERSION, Corridor, bearing_deg, validate_families
 from .refs import load_ref_index
 
@@ -32,10 +35,42 @@ def load_config(path: Path) -> dict:
     return cfg
 
 
+def code_version() -> str:
+    """Hash of the code that produces ledger records, so a code change never resumes stale results."""
+    src = b"".join(Path(m.__file__).read_bytes() for m in (router, classify, refs_mod))
+    return hashlib.sha256(src).hexdigest()[:10]
+
+
 def run_id(cfg: dict, snapshot: dict) -> str:
     pinned = {k: v for k, v in cfg.items() if k != "workers"}  # parallelism must not change results
-    h = hashlib.sha256(json.dumps([pinned, snapshot, FAMILY_KEY_VERSION], sort_keys=True).encode()).hexdigest()
+    h = hashlib.sha256(json.dumps([pinned, snapshot, FAMILY_KEY_VERSION, code_version()],
+                                  sort_keys=True).encode()).hexdigest()
     return f"{cfg['label']}-{h[:10]}"
+
+
+def load_boundary(path: str | None):
+    """Geofabrik .poly extract boundary -> prepared polygon (None if not configured). Holes ('!') are skipped."""
+    if not path:
+        return None
+    polys, ring, hole = [], None, False
+    lines = Path(path).read_text().splitlines()[1:]  # first line is the file name
+    for line in lines:
+        t = line.split()
+        if not t:
+            continue
+        if t[0] == "END":
+            if ring is not None and not hole and len(ring) >= 3:
+                polys.append(Polygon(ring))
+            ring = None
+        elif ring is None:
+            ring, hole = [], t[0].startswith("!")
+        else:
+            ring.append((float(t[0]), float(t[1])))
+    return prep(unary_union(polys))
+
+
+def in_boundary(boundary, lat: float, lon: float) -> bool:
+    return boundary is None or boundary.contains(Point(lon, lat))
 
 
 def candidate_cells(cfg: dict) -> list[str]:
@@ -53,6 +88,12 @@ def candidate_cells(cfg: dict) -> list[str]:
 def run(cfg_path: Path, fresh: bool = False, max_probes: int | None = None) -> Path:
     cfg = load_config(cfg_path)
     snapshot = json.loads(Path(cfg["data"]["snapshot"]).read_text())
+    if snapshot.get("pbf") != Path(cfg["data"]["pbf"]).name:
+        raise SystemExit(f"Tiles were built from {snapshot.get('pbf')} but the config pins "
+                         f"{Path(cfg['data']['pbf']).name}. Run: python -m zonegen build-tiles {cfg_path}")
+    boundary = load_boundary(cfg["data"].get("boundary"))
+    if not in_boundary(boundary, cfg["base"]["lat"], cfg["base"]["lon"]):
+        raise SystemExit("The base is outside the loaded map data.")
     rid = run_id(cfg, snapshot)
     out = Path("runs") / rid
     out.mkdir(parents=True, exist_ok=True)
@@ -75,24 +116,34 @@ def run(cfg_path: Path, fresh: bool = False, max_probes: int | None = None) -> P
     done = {}
     if ledger.exists():
         for line in ledger.read_text().splitlines():
-            rec = json.loads(line)
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a line cut off by a crash: that probe is simply routed again
             done[rec["id"]] = rec
     spent = {"calls": sum(r.get("calls", 0) for r in done.values()), "inflight": 0}
+    # no graph data there: distinct from "no road", never routed (spec §6.1); not written to the ledger
+    for p in probes:
+        if p["id"] not in done and not in_boundary(boundary, p["lat"], p["lon"]):
+            done[p["id"]] = {**p, "status": "unknown", "reasons": ["data_unavailable"], "calls": 0}
+    lock = threading.Lock()  # the pool's feeder thread runs todo() while the main thread counts results
 
     def todo():
         for p in probes:
             if p["id"] in done:
                 continue
-            if spent["calls"] + spent["inflight"] * MAX_CALLS_PER_PROBE >= cfg["request_budget"]:
-                return
-            spent["inflight"] += 1
+            with lock:
+                if spent["calls"] + spent["inflight"] * MAX_CALLS_PER_PROBE >= cfg["request_budget"]:
+                    return
+                spent["inflight"] += 1
             yield p
 
     t0 = time.time()
     with Pool(cfg["workers"], initializer=router.init_worker, initargs=(cfg,)) as pool, ledger.open("a") as f:
         for i, rec in enumerate(pool.imap_unordered(router.evaluate, todo(), chunksize=16), 1):
-            spent["inflight"] -= 1
-            spent["calls"] += rec["calls"]
+            with lock:
+                spent["inflight"] -= 1
+                spent["calls"] += rec["calls"]
             done[rec["id"]] = rec
             f.write(json.dumps(rec) + "\n")
             if i % 1000 == 0:
@@ -100,6 +151,7 @@ def run(cfg_path: Path, fresh: bool = False, max_probes: int | None = None) -> P
 
     meta = {"run_id": rid, "config": str(cfg_path), "snapshot": snapshot, "family_key_version": FAMILY_KEY_VERSION,
             "valhalla": "pyvalhalla " + __import__("valhalla").__version__, "base_snap": base_snap,
+            "coverage": cfg["coverage"], "time_view": cfg["time_view"], "code_version": code_version(),
             "candidate_cells": len(cells), "probes_total": len(probes), "calls": spent["calls"],
             "elapsed_s_this_session": round(time.time() - t0, 1), "refs_counts": refs["counts"]}
     cells_out, hard_out = postprocess(cfg, [p for p in probes if p["kind"] == "cell"], done, hard)

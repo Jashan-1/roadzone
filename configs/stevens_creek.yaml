@@ -31,6 +31,7 @@ workers: 10
 data:
   pbf: data/california-261018.osm.pbf
   snapshot: data/snapshot.json
+  boundary: data/california.poly  # Geofabrik extract polygon; cells outside are data_unavailable
   valhalla_config: data/valhalla.json
   refs_cache: data/refs-california-261018.json
 hard_cases: tests/hard_cases.yaml

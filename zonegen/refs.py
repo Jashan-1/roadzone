@@ -1,4 +1,5 @@
 """way_id -> normalized highway refs, from route relations in the same pinned PBF (spec §4, §6.5.1 step 3)."""
+import hashlib
 import json
 from pathlib import Path
 
@@ -43,6 +44,9 @@ def build_ref_index(pbf: Path) -> dict:
 
 
 def load_ref_index(pbf: Path, cache: Path) -> dict:
+    # the cache is only valid for the code that built it (ref normalization lives in classify.py)
+    src = b"".join(Path(__file__).with_name(f).read_bytes() for f in ("refs.py", "classify.py"))
+    cache = cache.with_name(f"{cache.stem}-{hashlib.sha256(src).hexdigest()[:8]}{cache.suffix}")
     if not cache.exists():
         cache.write_text(json.dumps(build_ref_index(pbf)))
     raw = json.loads(cache.read_text())

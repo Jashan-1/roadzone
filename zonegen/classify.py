@@ -41,12 +41,16 @@ class Corridor:
 
 # --- bands -----------------------------------------------------------------
 
+def band_edges(hub: float, step: float, limit: float) -> list[float]:
+    """Lower edge of bands 1..n; band 0 (Hub) is [0, hub). Shared with the viewer legend."""
+    return [hub + k * step for k in range(math.ceil((limit - hub) / step))]
+
+
 def band_index(m: float, hub: float, step: float, limit: float) -> int | None:
     """0 = Hub [0, hub); then half-open bands of `step`; the last one includes `limit`. None = outside."""
     if m > limit:
         return None
-    lower_edges = [hub + k * step for k in range(math.ceil((limit - hub) / step))]
-    return sum(1 for edge in lower_edges if m >= edge)
+    return sum(1 for edge in band_edges(hub, step, limit) if m >= edge)
 
 
 # --- refs --------------------------------------------------------------------

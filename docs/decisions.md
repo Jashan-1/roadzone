@@ -13,6 +13,11 @@ Status: proof of concept for a CEO demo, **pre-kickoff**. This does not change t
 | 7 | **The base is a placeholder** on Stevens Creek Blvd (`base_confirmed: false`). | The spec forbids guessing the van entrance. Changing it is a one-line config edit plus a rerun. |
 | 8 | **Display letters are clockwise** by the circular-mean bearing of member cells from the base. The zone ID is the family key plus the band. | Spec §6.8. Letters are display only; the family key is the identity. |
 | 9 | **Hatched fallback colour** is the nearest supported corridor by H3 grid distance, with ties broken by corridor id. | Spec §6.8. It is display only and never feeds classification. |
+| 10 | **Routes use the same `search_filter` as the snap.** | Otherwise Valhalla re-snaps the base and the destination without the filter, so routes can start on a freeway while the evidence shows a side street. |
+| 11 | **A far snap (100–500 m) always means `unknown`**, even when the route is long or missing. | Spec §6.3: a cap exceedance gives an unknown cell. It never becomes `outside_coverage` or `unreachable`. |
+| 12 | **Cells outside the extract polygon are `data_unavailable`** and are never routed. | Spec §6.1: missing graph data is not "no road". At South Lake Tahoe, 6,185 of 11,032 "no road" cells were really Nevada. |
+| 13 | **The run ID includes a hash of the router, classifier and refs code.** The refs cache is keyed the same way. | A code change can never silently resume results produced by older code. |
+| 14 | **`snapshot.json` is written by `build-tiles`, not by the download.** `run` refuses to start if it names a different PBF than the config. | The snapshot record always describes the routing graph that was actually built. |
 
 ## Draft accuracy definitions (needed before any 99%/95% claim)
 

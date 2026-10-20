@@ -2,6 +2,7 @@
 import csv
 import json
 import resource
+import sys
 from collections import Counter
 
 import h3
@@ -108,7 +109,9 @@ def write_outputs(out, cfg, meta, cells, hard_out, hard):
     shadow = [r for r in cells.values() if "snap_far" in r["reasons"]]
     shadow_bands = Counter("outside" if r.get("band") is None else r["band"] for r in shadow)
     crosstab = Counter((r.get("band"), r.get("band_time")) for r in covered)
-    rss_mb = (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss) / 1e6
+    rss_unit = 1e6 if sys.platform == "darwin" else 1e3  # ru_maxrss is bytes on macOS, KiB on Linux
+    rss_mb = (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+              + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss) / rss_unit
 
     md = [f"# Failure report — {meta['run_id']}", "", NOTICE, "",
           f"- **Base entrance confirmed:** {b['confirmed']}" + ("" if b["confirmed"] else

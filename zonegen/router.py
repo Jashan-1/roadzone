@@ -66,8 +66,9 @@ def snap(lat: float, lon: float) -> dict | None:
 
 
 def route(a: dict, b: dict) -> tuple[dict | None, int | None]:
-    r = _W["cfg"]["routing"]
-    req = {"locations": [{"lat": a["lat"], "lon": a["lon"]}, {"lat": b["lat"], "lon": b["lon"]}],
+    r, flt = _W["cfg"]["routing"], _W["cfg"]["snap"]["search_filter"]
+    # same filter as snap(), so routes start/end on the edge the evidence records (not a nearby freeway)
+    req = {"locations": [{"lat": p["lat"], "lon": p["lon"], "search_filter": flt} for p in (a, b)],
            "costing": r["costing"], "costing_options": r["costing_options"],
            "directions_type": "none", "units": "kilometers"}
     res, err = _call("route", req)
@@ -117,8 +118,10 @@ def evaluate(probe: dict) -> dict:
     back, e_back = route(sn, base)
     if out is None or back is None:
         codes = {c for c in (e_out, e_back) if c is not None}
-        rec["status"] = "unreachable" if codes <= NO_PATH_CODES else "unknown"
-        rec["reasons"].append("unreachable" if rec["status"] == "unreachable" else f"route_failed:{sorted(codes)}")
+        # a far snap is never trusted enough to call a cell confirmed unreachable (spec §6.3)
+        rec["status"] = "unreachable" if codes <= NO_PATH_CODES and not far else "unknown"
+        rec["reasons"].append("snap_far" if far else
+                              "unreachable" if rec["status"] == "unreachable" else f"route_failed:{sorted(codes)}")
         rec["calls"] = _W["calls"]
         return rec
     m_dist, m_time = max(out["m"], back["m"]), max(out["s"], back["s"])
@@ -144,12 +147,12 @@ def evaluate(probe: dict) -> dict:
         "refs": list(corridor.refs), "direction": corridor.direction, "direction_method": corridor.direction_method,
         "bearing": corridor.bearing, "dwell_s": corridor.dwell_s, "tied": corridor.tied,
         "directed_ways": [list(d) for d in corridor.directed_ways]}
-    if band is None:
+    if far:
+        rec["status"] = "unknown"  # shadow result kept above; never classified, not even as outside
+        rec["reasons"].append("snap_far")
+    elif band is None:
         rec["status"] = "outside_coverage"
         rec["reasons"].append("outside_limit")
-    elif far:
-        rec["status"] = "unknown"  # shadow result kept above; never classified at the decision cap
-        rec["reasons"].append("snap_far")
     elif band > 0 and (corridor is None or corridor.status == "review_required"):
         rec["status"] = "centroid_sampled"
         rec["reasons"].append("corridor_review_required")

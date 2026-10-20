@@ -224,3 +224,5 @@ data/
 runs/*
 !runs/.gitkeep
 configs/custom/
+.claude/skills/developing-with-streamlit
+.agents/
