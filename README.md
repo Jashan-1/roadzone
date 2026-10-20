@@ -186,7 +186,7 @@ uv run python -m zonegen build-tiles configs/stevens_creek.yaml
 uv run pytest                                              # classifier unit tests (no router needed)
 uv run python -m zonegen run configs/stevens_creek.yaml --max-probes 200   # smoke test
 uv run python -m zonegen run configs/stevens_creek.yaml    # full run; resumable
-python3 -m http.server 8000   # then open http://localhost:8000/viewer/?run=<run_id>
+uv run streamlit run app.py                                # map viewer at http://localhost:8501
 ```
 
 Each run writes `runs/<run_id>/cells.geojson`, `failure_report.md` and `hard_cases_results.csv`. The run ID is a hash of the config, the snapshot and the classifier version, so rerunning resumes, and `--fresh` starts over. Decisions and draft accuracy definitions are in [docs/decisions.md](docs/decisions.md).
