@@ -1,0 +1,36 @@
+# M1 proof of concept, pre-kickoff. Not an approved Milestone 1 run.
+label: stevens-creek-poc
+base:
+  # Placeholder public-road point on Stevens Creek Blvd. NOT the dealer van entrance (spec §16.1).
+  lat: 37.32305
+  lon: -121.97000
+  confirmed: false
+coverage:  # road distance is primary (spec §5); stored and compared in meters
+  metric: distance
+  limit_miles: 50
+  hub_miles: 5
+  band_step_miles: 10
+time_view:  # free-flow planning minutes from the same routes; display only
+  limit_minutes: 60
+  hub_minutes: 15
+  band_step_minutes: 15
+grid:
+  resolution: 8
+  extent_radius_km: 82  # 50 road miles <= 80.5 km crow-flies, plus one cell of margin
+snap:
+  decision_cap_m: 100
+  shadow_cap_m: 500  # 100-500 m snaps are routed and reported, never classified
+  search_filter: {exclude_ramp: true, exclude_tunnel: true, exclude_bridge: true, max_road_class: trunk}
+routing:
+  costing: auto
+  costing_options:
+    auto: {use_ferry: 0, use_tolls: 0.5, private_access_penalty: 450, destination_only_penalty: 600, gate_penalty: 300}
+backbone_classes: [motorway, trunk, primary]
+request_budget: 130000  # Valhalla calls; at most 4 per cell (locate, out, back, trace) plus one trace retry
+workers: 10
+data:
+  pbf: data/norcal-261018.osm.pbf
+  snapshot: data/snapshot.json
+  valhalla_config: data/valhalla.json
+  refs_cache: data/refs.json
+hard_cases: tests/hard_cases.yaml

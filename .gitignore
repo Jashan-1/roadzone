@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# RoadZone: pinned OSM data, Valhalla tiles and run artifacts stay local
+data/
+runs/*
+!runs/.gitkeep

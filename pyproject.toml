@@ -1,0 +1,19 @@
+[project]
+name = "roadzone"
+version = "0.1.0"
+description = "Road-aware service zone generator (M1 POC)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "h3>=4.1",
+    "osmium>=4.0",
+    "shapely>=2.0",
+    "pyyaml>=6.0",
+    "pyvalhalla==3.9.1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

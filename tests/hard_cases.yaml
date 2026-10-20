@@ -1,0 +1,58 @@
+# Hard-case probes (spec §15.3 fixture classes). Coordinates are approximate public points, not customer addresses.
+# Expectations are engineering guesses until a service director confirms them; `confirmed_by` says so.
+# expected.refs_any lists acceptable normalized ref sets; status/band/direction are checked only when present.
+- {id: hub_santa_clara, name: Santa Clara near Valley Fair, category: hub, lat: 37.3250, lon: -121.9450,
+   expected: {status: centroid_sampled, band: 0}, confirmed_by: unconfirmed}
+- {id: hub_cupertino, name: Cupertino civic center, category: hub, lat: 37.3229, lon: -122.0322,
+   expected: {status: centroid_sampled}, confirmed_by: unconfirmed}
+- {id: sj_downtown, name: Downtown San Jose (near Hub edge), category: band_edge, lat: 37.3382, lon: -121.8863,
+   confirmed_by: unconfirmed}
+- {id: palo_alto, name: Palo Alto (I-280 vs US-101 parallel), category: parallel_freeways, lat: 37.4419, lon: -122.1430,
+   expected: {refs_any: [["I 280"], ["US 101"], ["CA 85"]]}, confirmed_by: unconfirmed}
+- {id: redwood_city, name: Redwood City (I-280 vs US-101), category: parallel_freeways, lat: 37.4852, lon: -122.2364,
+   expected: {refs_any: [["I 280"], ["US 101"]]}, confirmed_by: unconfirmed}
+- {id: san_mateo, name: San Mateo downtown, category: parallel_freeways, lat: 37.5630, lon: -122.3255,
+   expected: {refs_any: [["I 280"], ["US 101"]]}, confirmed_by: unconfirmed}
+- {id: sf_downtown, name: San Francisco Civic Center (near outer limit), category: band_edge, lat: 37.7793, lon: -122.4193,
+   expected: {refs_any: [["I 280"], ["US 101"]], direction: N}, confirmed_by: unconfirmed}
+- {id: milpitas, name: Milpitas (I-880 vs I-680), category: parallel_freeways, lat: 37.4323, lon: -121.8996,
+   confirmed_by: unconfirmed}
+- {id: fremont, name: Fremont central, category: parallel_freeways, lat: 37.5485, lon: -121.9886,
+   expected: {refs_any: [["I 880"], ["I 680"]], direction: N}, confirmed_by: unconfirmed}
+- {id: pleasanton, name: Pleasanton (I-680 north), category: multiplex_direction, lat: 37.6624, lon: -121.8747,
+   expected: {refs_any: [["I 680"]], direction: N}, confirmed_by: unconfirmed}
+- {id: livermore, name: Livermore (I-680 then I-580), category: multiplex_direction, lat: 37.6819, lon: -121.7680,
+   expected: {refs_any: [["I 680"], ["I 580"]]}, confirmed_by: unconfirmed}
+- {id: oakland, name: Downtown Oakland, category: multiplex_direction, lat: 37.8044, lon: -122.2712,
+   expected: {refs_any: [["I 880"]], direction: N}, confirmed_by: unconfirmed}
+- {id: newark_dumbarton, name: Newark near Dumbarton Bridge east end, category: bridge_water, lat: 37.5300, lon: -122.0400,
+   confirmed_by: unconfirmed}
+- {id: hayward_shore, name: Hayward near San Mateo Bridge east end, category: bridge_water, lat: 37.6330, lon: -122.0900,
+   confirmed_by: unconfirmed}
+- {id: alviso_marina, name: Alviso marina, category: bridge_water, lat: 37.4280, lon: -121.9800, confirmed_by: unconfirmed}
+- {id: bay_water, name: Open water in South Bay, category: bridge_water, lat: 37.5500, lon: -122.1500,
+   expected: {status: unknown}, confirmed_by: unconfirmed}
+- {id: pacific_water, name: Pacific Ocean off Santa Cruz, category: bridge_water, lat: 36.9000, lon: -122.3000,
+   expected: {status: unknown}, confirmed_by: unconfirmed}
+- {id: los_gatos, name: Los Gatos downtown (CA-17 vs I-880), category: multiplex_direction, lat: 37.2266, lon: -121.9747,
+   confirmed_by: unconfirmed}
+- {id: scotts_valley, name: Scotts Valley over CA-17, category: mountains, lat: 37.0511, lon: -122.0147,
+   expected: {refs_any: [["CA 17"]], direction: S}, confirmed_by: unconfirmed}
+- {id: santa_cruz, name: Santa Cruz downtown, category: mountains, lat: 36.9741, lon: -122.0308,
+   expected: {refs_any: [["CA 17"]]}, confirmed_by: unconfirmed}
+- {id: skyline_saratoga_gap, name: Skyline Blvd at Saratoga Gap (CA-35/CA-9), category: mountains, lat: 37.2577, lon: -122.1225,
+   confirmed_by: unconfirmed}
+- {id: mt_hamilton, name: Mt Hamilton Road near Lick Observatory, category: mountains, lat: 37.3414, lon: -121.6429,
+   confirmed_by: unconfirmed}
+- {id: half_moon_bay, name: Half Moon Bay (CA-92 over the hills), category: mountains, lat: 37.4636, lon: -122.4286,
+   confirmed_by: unconfirmed}
+- {id: morgan_hill, name: Morgan Hill (US-101 south), category: parallel_freeways, lat: 37.1305, lon: -121.6544,
+   expected: {refs_any: [["US 101"]], direction: S}, confirmed_by: unconfirmed}
+- {id: gilroy, name: Gilroy (US-101 south), category: parallel_freeways, lat: 37.0058, lon: -121.5683,
+   expected: {refs_any: [["US 101"]], direction: S}, confirmed_by: unconfirmed}
+- {id: hollister, name: Hollister (near outer limit), category: band_edge, lat: 36.8525, lon: -121.4016,
+   confirmed_by: unconfirmed}
+- {id: walnut_creek, name: Walnut Creek (near outer limit), category: band_edge, lat: 37.9101, lon: -122.0652,
+   confirmed_by: unconfirmed}
+- {id: monterey, name: Monterey (beyond 50 road miles), category: band_edge, lat: 36.6002, lon: -121.8947,
+   expected: {status: outside_coverage}, confirmed_by: unconfirmed}

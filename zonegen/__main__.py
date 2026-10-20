@@ -1,0 +1,49 @@
+"""uv run python -m zonegen {build-tiles,run} configs/stevens_creek.yaml"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import osmium
+import valhalla
+
+from .pipeline import load_config, run
+
+
+def build_tiles(cfg_path: Path):
+    cfg = load_config(cfg_path)
+    d = cfg["data"]
+    pbf, tiles = Path(d["pbf"]), Path(d["valhalla_config"]).parent / "valhalla_tiles"
+    tiles.mkdir(parents=True, exist_ok=True)
+    vcfg = valhalla.get_config(tile_extract="", tile_dir=tiles)
+    vcfg["mjolnir"]["admin"] = str((tiles.parent / "admins.sqlite").resolve())
+    vcfg["mjolnir"]["concurrency"] = os.cpu_count()
+    Path(d["valhalla_config"]).write_text(json.dumps(vcfg, indent=2))
+    for tool in ("valhalla_build_admins", "valhalla_build_tiles"):
+        subprocess.run([sys.executable, "-m", "valhalla", tool, "-c", d["valhalla_config"], str(pbf)], check=True)
+    snap_path = Path(d["snapshot"])
+    snap = json.loads(snap_path.read_text())
+    snap["osm_timestamp"] = osmium.io.Reader(str(pbf), osmium.osm.osm_entity_bits.NOTHING).header() \
+        .get("osmosis_replication_timestamp")
+    snap["router"] = "pyvalhalla " + valhalla.__version__
+    snap_path.write_text(json.dumps(snap, indent=2))
+    print(json.dumps(snap, indent=2))
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="zonegen")
+    ap.add_argument("command", choices=["build-tiles", "run"])
+    ap.add_argument("config", type=Path)
+    ap.add_argument("--fresh", action="store_true", help="discard the probe ledger and start over")
+    ap.add_argument("--max-probes", type=int, help="smoke test: evaluate only the nearest N cells")
+    a = ap.parse_args()
+    if a.command == "build-tiles":
+        build_tiles(a.config)
+    else:
+        print(run(a.config, fresh=a.fresh, max_probes=a.max_probes))
+
+
+if __name__ == "__main__":
+    main()
