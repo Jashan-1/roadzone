@@ -50,12 +50,16 @@ def decode_polyline6(s: str) -> list[tuple[float, float]]:
     return pts
 
 
-def snap(lat: float, lon: float) -> dict | None:
-    """Closest acceptable road edge within the shadow cap, via /locate. A track is skipped for a real road if one exists."""
+def snap(lat: float, lon: float, skip_tracks: bool = True) -> dict | None:
+    """Closest acceptable road edge within the shadow cap, via /locate.
+
+    For cell probes a track is skipped for a real road if one exists. Addresses keep their nearest access
+    (skip_tracks=False): for a real house the driveway, service road or even a track is the way in.
+    """
     cfg = _W["cfg"]["snap"]
     sn = _locate(lat, lon, cfg["search_filter"])
     retry = cfg.get("track_retry_min_road_class")
-    if sn and sn["use"] == "track" and retry:
+    if sn and sn["use"] == "track" and retry and skip_tracks:
         # locate can't filter by use; a minimum road class drops service-class edges (tracks, driveways, lots)
         road = _locate(lat, lon, {**cfg["search_filter"], "min_road_class": retry})
         if road:
@@ -121,13 +125,17 @@ def evaluate(probe: dict) -> dict:
     cfg = _W["cfg"]
     cov, tv = cfg["coverage_m"], cfg["time_view_s"]
     rec = {**probe, "reasons": [], "family_key_version": FAMILY_KEY_VERSION}
-    sn = snap(probe["lat"], probe["lon"])
+    is_cell = probe["kind"] == "cell"
+    sn = snap(probe["lat"], probe["lon"], skip_tracks=is_cell)
     rec["snap"] = sn
     if sn is None:
         rec.update(status="unknown", calls=_W["calls"])
         rec["reasons"].append("snap_failed")
         return rec
-    if sn["use"] == "track":
+    if sn["use"] == "track" and not is_cell:
+        rec["reasons"].append("access_via_track")  # a house reached by a track: route it, but a person checks it
+        rec["review_required"] = True
+    elif sn["use"] == "track":
         # farm/forest/park tracks are not service access; routing them crawls up dirt trails (OSRM cross-check)
         rec.update(status="unknown", calls=_W["calls"])
         rec["reasons"].append("snap_track")
@@ -136,7 +144,7 @@ def evaluate(probe: dict) -> dict:
         rec["reasons"].append("snapped_past_track")  # the cap checks below apply to this second snap
     far = sn["dist_m"] > cfg["snap"]["decision_cap_m"]
     # a cell centre often sits off-road; a road point inside the same hexagon still probes that cell
-    if far and probe["kind"] == "cell" and h3.latlng_to_cell(sn["lat"], sn["lon"], cfg["grid"]["resolution"]) == probe["id"]:
+    if far and is_cell and h3.latlng_to_cell(sn["lat"], sn["lon"], cfg["grid"]["resolution"]) == probe["id"]:
         far = False
         rec["reasons"].append("snap_in_cell")
     base = cfg["base"]

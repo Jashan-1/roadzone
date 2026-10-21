@@ -7,6 +7,7 @@
 #   detour_ratio_min: road miles / straight-line miles must be at least this (one-road mountain access)
 #   snap_not_motorway: the snapped road must not be a motorway/ramp
 #   not_extent_review: no extent_review_required reason
+#   zone_or_review: gets a zone or an explicit review flag (never a silent unknown)
 #   note: reviewer-facing context shown in the report (does not change pass/fail)
 # Every case is also routed by OSRM (public demo server) as an independent cross-check.
 
@@ -45,3 +46,14 @@
 - {id: next_door, group: 5-boundary, name: About 100 m from the base, lat: 37.32390, lon: -121.97000, status: centroid_sampled}
 - {id: gilroy, group: 5-boundary, name: Gilroy near the 50-mile edge, lat: 37.0058, lon: -121.5683, not_extent_review: true}
 - {id: monterey, group: 5-boundary, name: Monterey beyond 50 road miles, lat: 36.6002, lon: -121.8947, status: outside_coverage}
+
+# 6. Hill homes on the address path (points ~30-50 m from their access road; public roads, no house numbers).
+#    Pass = a zone, or an explicit review flag. Never a silent unknown just because the land around is track-only.
+- {id: hill_connely_creek, group: 6-hill-address, name: Connely Creek Rd (Bear Creek area, Los Gatos), lat: 37.1700, lon: -122.0300, zone_or_review: true}
+- {id: hill_soda_springs, group: 6-hill-address, name: Soda Springs Rd (Los Gatos mountains), lat: 37.1864, lon: -121.9729, zone_or_review: true}
+- {id: hill_quarry_rd, group: 6-hill-address, name: Quarry Rd off Pierce Rd (Saratoga hills), lat: 37.2700, lon: -122.0480, zone_or_review: true}
+- {id: hill_mount_eden, group: 6-hill-address, name: Driveway off Mount Eden Rd (Saratoga), lat: 37.2630, lon: -122.0600, zone_or_review: true}
+- {id: hill_loma_prieta, group: 6-hill-address, name: Loma Prieta Ave (Summit Rd area), lat: 37.1210, lon: -121.9230, zone_or_review: true}
+- {id: hill_ca9_saratoga, group: 6-hill-address, name: CA-9 Big Basin Way above Saratoga, lat: 37.2522, lon: -122.0619, zone_or_review: true}
+- {id: hill_aldercroft, group: 6-hill-address, name: Aldercroft Heights (track access), lat: 37.1830, lon: -121.9700, zone_or_review: true}
+- {id: hill_black_rd_track, group: 6-hill-address, name: PG&E road off Black Rd (track access), lat: 37.2080, lon: -122.0250, zone_or_review: true}

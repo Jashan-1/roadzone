@@ -6,8 +6,21 @@ RoadZone is a geospatial engine designed to generate mobile service zones based 
 
 The goal is to help mobile service businesses determine which areas they can reliably serve, classify locations into distance or travel-time bands, and identify addresses that require manual review.
 
-> **Status:** Planning / early development  
-> **Initial target:** A reproducible, single-market prototype for the Stevens Creek, California area.
+> **Status:** M1 proof of concept complete (pre-kickoff). Recommendation: **proceed, with known limits**. See the [M1 failure report](docs/m1-failure-report.md).
+> **Next gate:** service-director review of 20 known addresses, and the confirmed van entrance (the current base point is a placeholder).
+
+## M1 results at a glance
+
+All numbers use a **provisional base** (placeholder point, not the confirmed van entrance). **Road miles are the v1 rule; minutes are free-flow and optimistic.**
+
+| Check | Result |
+|---|---|
+| Agreement with an independent router (OSRM), 200 cells never used for tuning | Road miles within ±10%: **88–94%** · same distance band: **88–92%** (most band disagreements are within 0.5 mi of a band edge) |
+| Tricky scenarios (corridors, water, mountains, freeway traps, edges, hill homes) | **28/31** pass. The 3 failures are documented (Half Moon Bay labelled I-280, Walnut Creek just outside 50 mi, Saratoga Gap borderline). |
+| Hill homes on the address path | **8/8** get a band; track or unnamed-road access is flagged for review, never left as a silent "unknown" |
+| Stevens Creek hard cases | 16/17 |
+
+OSRM is a cross-check, not ground truth, and every expectation is engineering judgement until the service director reviews it.
 
 ## Why RoadZone?
 
@@ -64,38 +77,23 @@ Distance-based and travel-time-based classification will remain distinct modes. 
 
 Additional geocoding, address-quality checks, and cross-router validation may be introduced in later milestones where they provide measurable value.
 
-## Planned Project Structure
+## Project Structure
 
 ```text
 roadzone/
-├── README.md
-├── pyproject.toml
-├── .gitignore
-├── configs/
-│   └── stevens_creek.yaml
-├── zonegen/
-│   ├── grid.py
-│   ├── snap.py
-│   ├── router.py
-│   ├── refs.py
-│   ├── corridor.py
-│   ├── bands.py
-│   └── report.py
-├── tests/
-│   ├── test_bands.py
-│   ├── test_snap.py
-│   ├── test_routing.py
-│   └── hard_cases.yaml
-├── scripts/
-│   └── generate_zones.py
-├── docs/
-│   ├── decisions.md
-│   └── accuracy-metrics.md
-└── runs/
-    └── .gitkeep
+├── app.py                    # Streamlit viewer: map, legend, new runs
+├── configs/stevens_creek.yaml
+├── zonegen/                  # the engine
+│   ├── pipeline.py           # grid, resumable parallel runs, lettering, display fallback
+│   ├── router.py             # Valhalla adapter: snap, route out/back, trace, per-probe status
+│   ├── classify.py           # bands and the longest-dwell corridor classifier
+│   ├── refs.py               # highway names and signed directions from OSM route relations
+│   └── report.py             # cells.geojson + failure_report.md
+├── scripts/                  # fetch data, 7-site sweep, scenarios, OSRM cross-check, run comparison
+├── tests/                    # unit tests, hard_cases.yaml, scenarios.yaml
+├── docs/                     # decisions.md, m1-failure-report.md
+└── runs/                     # generated outputs (git-ignored)
 ```
-
-*This is the proposed structure; modules and files will be added as implementation progresses.*
 
 ## Initial Milestone: M1
 
@@ -217,7 +215,10 @@ Each run writes `runs/<run_id>/cells.geojson`, `failure_report.md` and `hard_cas
 
 ## Current Limitations
 
-- RoadZone is a planned prototype; its accuracy and production readiness have not yet been established.
+- RoadZone is an M1 proof of concept: agreement with a second router is measured, but real-world accuracy is not, until the service director's review.
+- The base point is a placeholder, not the dealer-confirmed van entrance.
+- Corridors are named after the longest-driven highway, so a later highway can dominate (e.g. Half Moon Bay labelled I-280, not CA-92).
+- Hill and park land whose only road is a track is "unknown" at cell level; real homes there are resolved per address.
 - Routing results depend on the quality and version of the underlying road network.
 - Snapping to a road does not guarantee that the destination is reachable or correctly represented.
 - Travel-time estimates without live traffic should not be treated as real-time ETAs.

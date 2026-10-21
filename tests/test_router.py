@@ -108,3 +108,11 @@ def test_track_snap_retries_for_a_real_road(fake):
     rec = router.evaluate(PROBE)
     assert rec["status"] == "centroid_sampled" and [a for a, _ in sent].count("locate") == 2
     assert "snapped_past_track" in rec["reasons"] and rec["snap"]["skipped_track_dist_m"] is not None
+
+
+def test_address_on_a_track_is_routed_and_flagged_for_review(fake):
+    sent = fake(0.0001, 2.0, use="track", retry_use="road")
+    rec = router.evaluate({**PROBE, "id": "hc:x", "kind": "hard_case"})
+    assert rec["status"] == "centroid_sampled" and rec["band"] == 0
+    assert rec["review_required"] and "access_via_track" in rec["reasons"]
+    assert [a for a, _ in sent].count("locate") == 1  # the address keeps its own access, no second look

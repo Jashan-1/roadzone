@@ -113,7 +113,9 @@ def write_outputs(out, cfg, meta, cells, hard_out, hard):
     rss_mb = (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
               + resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss) / rss_unit
 
-    md = [f"# Failure report — {meta['run_id']}", "", NOTICE, "",
+    provisional = "" if b["confirmed"] else (" **Provisional base:** the depot point is a placeholder, not the "
+                                              "dealer-confirmed van entrance; every number shifts if it moves.")
+    md = [f"# Failure report — {meta['run_id']}", "", NOTICE + provisional, "",
           f"- **Base entrance confirmed:** {b['confirmed']}" + ("" if b["confirmed"] else
             " — placeholder public-road point; every result is `base_unconfirmed`."),
           f"- **20-address director review:** not run (addresses not supplied).",

@@ -82,6 +82,9 @@ def main(cfg_path: str = "configs/stevens_creek.yaml"):
             checks["detour_ratio"] = r["m_dist"] / crow >= c["detour_ratio_min"]
         if c.get("snap_not_motorway") and r.get("snap"):
             checks["snap_not_motorway"] = snap_road_class(r["snap"]["lat"], r["snap"]["lon"]) not in ("motorway",)
+        if c.get("zone_or_review"):
+            checks["zone_or_review"] = bool(r.get("review_required")) or (
+                r["status"] == "centroid_sampled" and r.get("band") is not None)
         if c.get("not_extent_review"):
             checks["not_extent_review"] = "extent_review_required" not in r["reasons"]
         again = router.evaluate({"id": f"sc:{c['id']}", "kind": "hard_case", "lat": c["lat"], "lon": c["lon"]})
@@ -98,7 +101,7 @@ def main(cfg_path: str = "configs/stevens_creek.yaml"):
             "group": c["group"], "id": c["id"], "status": r["status"], "band": r.get("band"),
             "miles": round(r["m_dist"] / 1609.344, 1) if r.get("m_dist") else None,
             "corridor": " | ".join(fam) or corr.get("status") or "-",
-            "reasons": ",".join(r["reasons"]) or "-",
+            "reasons": ",".join(r["reasons"]) or "-", "review": bool(r.get("review_required")),
             "osrm_miles": round(max(o_out["distance"], o_back["distance"]) / 1609.344, 1) if o_out and o_back else None,
             "band_agrees": None if o_band is None or r.get("m_dist") is None else o_band == r.get("band"),
             "ref_agrees": None if not (o_ref and ours_ref) else o_ref == ours_ref, "osrm_ref": o_ref,
@@ -109,6 +112,7 @@ def main(cfg_path: str = "configs/stevens_creek.yaml"):
 
     groups = sorted({r["group"] for r in rows})
     md = ["# Tricky-scenario results", "", f"Base {base['lat']}, {base['lon']} (confirmed: {base['confirmed']}).", "",
+          *([] if base["confirmed"] else ["- **Provisional base:** a placeholder point, not the dealer-confirmed van entrance."]),
           "- **Minutes are free-flow and optimistic** (no traffic data). Road miles are the v1 rule.",
           "- **OSRM is a cross-check, not ground truth:** a different engine on the same OSM data.",
           "- **Every expectation is engineering judgement** until the service director reviews it.", "",
@@ -117,11 +121,11 @@ def main(cfg_path: str = "configs/stevens_creek.yaml"):
         gr = [r for r in rows if r["group"] == g]
         rate = lambda k: f"{sum(r[k] is True for r in gr)}/{sum(r[k] is not None for r in gr)}"
         md.append(f"| {g} | {sum(r['pass'] for r in gr)}/{len(gr)} | {rate('band_agrees')} | {rate('ref_agrees')} |")
-    md += ["", "Groups 6 (geocoding) and 7 (ZIP batch) are not applicable yet: those features are Milestone 3.", "",
+    md += ["", "Geocoding and ZIP-batch cases are not applicable yet: those features are Milestone 3.", "",
            "| " + " | ".join(rows[0]) + " |", "|" + "---|" * len(rows[0])]
     md += ["| " + " | ".join("" if v is None else str(v) for v in r.values()) + " |" for r in rows]
     Path("runs/scenarios.md").write_text("\n".join(md) + "\n")
-    print("\n".join(md[:10 + len(groups)]))
+    print("\n".join(l for l in md if l.startswith("| ") and l.count("|") == 5))
 
 
 if __name__ == "__main__":

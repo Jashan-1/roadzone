@@ -42,7 +42,8 @@ def main():
     c = meta["coverage"]
     hub, step, limit = c["hub_miles"] * MI, c["band_step_miles"] * MI, c["limit_miles"] * MI
     edges = [*band_edges(hub, step, limit), limit]
-    cells = [r for r in map(json.loads, (a.run / "probes.jsonl").read_text().splitlines())
+    # sorted by cell id: the ledger is written in worker-completion order, so the file order differs run to run
+    cells = [r for r in sorted(map(json.loads, (a.run / "probes.jsonl").read_text().splitlines()), key=lambda r: r["id"])
              if r["kind"] == "cell" and r["status"] == "centroid_sampled" and r.get("band") is not None
              and r["id"] not in excluded]
     rng = random.Random(a.seed)
@@ -68,13 +69,17 @@ def main():
                      "group": "recovered past a track" if "snapped_past_track" in r["reasons"] else "never near a track"})
 
     within = sum(abs(x["ratio"] - 1) <= 0.10 for x in rows)
+    # a band disagreement where either router's miles sit within 0.5 mi of an edge is two routers splitting hairs
+    misses = [x for x in rows if x["band"] != x["osrm_band"]]
+    at_edge = sum(min(abs(m * MI - e) for e in edges for m in (x["ours_mi"], x["osrm_mi"])) < 0.5 * MI for x in misses)
     agree = sum(x["band"] == x["osrm_band"] for x in rows)
     worst = sorted(rows, key=lambda x: -abs(x["ratio"] - 1))[:10]
     md = [f"# OSRM cross-check: {meta['run_id']}", "",
           "OSRM is a different engine on the same OSM data: a cross-check, not ground truth.", "",
           f"- Cells compared: {len(rows)} ({a.per_band} per band + {a.edge} within 0.5 mi of a band edge)",
           f"- Road miles within ±10%: **{within}/{len(rows)}** ({within / max(len(rows), 1):.0%})",
-          f"- Same distance band: **{agree}/{len(rows)}** ({agree / max(len(rows), 1):.0%})",
+          f"- Same distance band: **{agree}/{len(rows)}** ({agree / max(len(rows), 1):.0%}). Of the {len(misses)} band "
+          f"disagreements, {at_edge} have either router within 0.5 mi of a band edge (boundary hair-splits).",
           f"- Median ratio ours/OSRM: {statistics.median(x['ratio'] for x in rows):.2f}",
           f"- Sample: seed {a.seed}; excluded {len(excluded)} cells used before", "",
           "## By snap group", "", "| group | cells | within ±10% | same band |", "|---|---|---|---|"]
