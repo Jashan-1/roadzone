@@ -1,4 +1,5 @@
 """RoadZone cell-map viewer: uv run streamlit run app.py"""
+import colorsys
 import html
 import json
 import math
@@ -6,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import h3
 import pydeck as pdk
 import streamlit as st
 import yaml
@@ -14,9 +16,10 @@ from collections import Counter
 from zonegen.classify import band_edges
 from zonegen.pipeline import MAX_CALLS_PER_PROBE, in_boundary, load_boundary, load_config
 
-PALETTE = [(31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40), (148, 103, 189), (140, 86, 75),
-           (227, 119, 194), (23, 190, 207), (188, 189, 34), (57, 59, 121), (99, 121, 57), (140, 109, 49),
-           (132, 60, 57), (123, 65, 115), (49, 130, 189), (127, 127, 127)]
+def corridor_colour(i: int) -> tuple[int, int, int]:
+    """i-th of an unlimited set of distinct colours: golden-angle hue steps, alternating lightness."""
+    r, g, b = colorsys.hls_to_rgb((i * 0.618034) % 1, 0.42 if i % 2 else 0.58, 0.7)
+    return round(r * 255), round(g * 255), round(b * 255)
 # distinct hues (not shades of one colour) so neighbouring bands are easy to tell apart; Hub is dark slate
 BANDS = [(55, 65, 81), (230, 57, 70), (247, 140, 38), (240, 200, 30), (60, 170, 80), (0, 160, 170),
          (70, 110, 220), (150, 80, 200), (230, 100, 180), (140, 100, 60), (130, 140, 40), (120, 120, 120)]
@@ -131,8 +134,18 @@ show_unknown = st.sidebar.checkbox("Show unknown cells (near a road)", value=Tru
 show_noroad = st.sidebar.checkbox("Show no-road / track-only / no-map-data cells", value=False)
 
 corridors = sorted({c["display_corridor_id"] for c in cells if c.get("display_corridor_id")})
-ccol = {cid: (82, 82, 91) if cid == "HUB" else (194, 168, 120) if cid == "L" else PALETTE[i % len(PALETTE)]
+ccol = {cid: (82, 82, 91) if cid == "HUB" else (194, 168, 120) if cid == "L" else corridor_colour(i)
         for i, cid in enumerate(corridors)}
+# isolated patch: a zoned cell whose zoned neighbours are mostly another corridor (display flag only)
+solid = {c["h3"]: c["display_corridor_id"] for c in cells if c.get("zone_code") and c.get("hatch_status") != "hatched"}
+
+
+def isolated(cid: str) -> bool:
+    if solid[cid] in ("HUB", "L"):
+        return False
+    # Hub and local-road neighbours don't count: the Hub's edge is a boundary, not a patch
+    nb = [solid[n] for n in h3.grid_ring(cid, 1) if n in solid and solid[n] not in ("HUB", "L")]
+    return len(nb) >= 3 and sum(x != solid[cid] for x in nb) / len(nb) > 0.5
 
 rows = []
 for c in cells:
@@ -152,16 +165,21 @@ for c in cells:
     # pydeck can't hatch: uncertain cells are drawn faint instead (outlines turn the map black when zoomed out)
     row = {k: ("" if c.get(k) is None else c[k]) for k in TIP_FIELDS}  # only what the map needs: big runs stay fast
     row["fill"] = [*rgb, 50 if uncertain else 180]
+    patch = mode == "Zones" and c["h3"] in solid and isolated(c["h3"])
+    row["patch"] = "isolated patch" if patch else ""
     rows.append(row)
 
 layer = pdk.Layer("H3HexagonLayer", rows, get_hexagon="h3", get_fill_color="fill", stroked=False,
                   extruded=False, pickable=True, auto_highlight=True)
+# outlines in their own layer, only for isolated patches: stroking every cell leaves seams across the map
+patch_layer = pdk.Layer("H3HexagonLayer", [r for r in rows if r["patch"]], get_hexagon="h3", filled=False,
+                        stroked=True, get_line_color=[20, 20, 20, 230], line_width_min_pixels=1.5, extruded=False)
 base_layer = pdk.Layer("ScatterplotLayer", [{"pos": base}], get_position="pos", get_radius=400,
                        get_fill_color=[0, 0, 0], pickable=False)
 # plain-text tooltip: corridor names come from editable OSM tags and must not be rendered as HTML
-tooltip = {"text": "{zone_code} {status}\n{m_dist_mi} mi · {m_time_min} free-flow min\n"
+tooltip = {"text": "{zone_code} {status} {patch}\n{m_dist_mi} mi · {m_time_min} free-flow min\n"
                    "corridor: {family_key} ({direction_method})\nsnap: {snap_dist_m} m\nreasons: {reason_codes}"}
-st.pydeck_chart(pdk.Deck(layers=[layer, base_layer], tooltip=tooltip, map_style="light",
+st.pydeck_chart(pdk.Deck(layers=[layer, patch_layer, base_layer], tooltip=tooltip, map_style="light",
                          initial_view_state=pdk.ViewState(latitude=base[1], longitude=base[0], zoom=8.5)),
                 height=650)
 
@@ -193,6 +211,9 @@ with left:
             st.markdown(f"<span style='color:rgb{BANDS[i % len(BANDS)]}'>■</span> Band {i}: {l}",
                         unsafe_allow_html=True)
     st.caption("Faint cells = unknown / mixed / needs review (display colour only, not an assignment).")
+    if mode == "Zones":
+        st.caption("Outlined cells = isolated patch: reached by a different corridor than most of their neighbours. "
+                   "A real result shown as an exception, not merged away.")
 with right:
     st.subheader("Cell counts")
     counts = {}
