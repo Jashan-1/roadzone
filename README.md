@@ -184,7 +184,7 @@ uv run python -m zonegen build-tiles configs/stevens_creek.yaml
 uv run pytest                                              # classifier unit tests (no router needed)
 uv run python -m zonegen run configs/stevens_creek.yaml --max-probes 200   # smoke test
 uv run python -m zonegen run configs/stevens_creek.yaml    # full run; resumable
-uv run streamlit run app.py                                # map viewer at http://localhost:8501
+uv run streamlit run app.py                                # viewer: map, addresses, branch comparison (http://localhost:8501)
 uv run python -m scripts.sweep                             # same pipeline at 7 California test bases
 uv run python -m scripts.compare_runs runs/OLD:runs/NEW    # per-cell band/corridor changes between two runs
 uv run python -m scripts.scenarios                         # 23 tricky cases + public OSRM cross-check -> runs/scenarios.md
