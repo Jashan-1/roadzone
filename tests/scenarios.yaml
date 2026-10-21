@@ -7,6 +7,7 @@
 #   detour_ratio_min: road miles / straight-line miles must be at least this (one-road mountain access)
 #   snap_not_motorway: the snapped road must not be a motorway/ramp
 #   not_extent_review: no extent_review_required reason
+#   note: reviewer-facing context shown in the report (does not change pass/fail)
 # Every case is also routed by OSRM (public demo server) as an independent cross-check.
 
 # 1. Corridor confusion
@@ -16,7 +17,8 @@
 - {id: los_altos_a, group: 1-corridor, name: Los Altos near CA-85 (A), lat: 37.3700, lon: -122.0900}
 - {id: los_altos_b, group: 1-corridor, name: Los Altos near CA-85 (B, ~1 km away), lat: 37.3780, lon: -122.1010}
 - {id: east_san_jose, group: 1-corridor, name: East San Jose past the 280/680 junction, lat: 37.3500, lon: -121.8300}
-- {id: walnut_creek, group: 1-corridor, name: Walnut Creek (via 680), lat: 37.9101, lon: -122.0652, refs_any: [["I 680"]], direction: N}
+- {id: walnut_creek, group: 1-corridor, name: Walnut Creek (via 680), lat: 37.9101, lon: -122.0652, refs_any: [["I 680"]], direction: N,
+   note: "Outside at 55 road miles; OSRM says 50.6, so both routers agree it is past 50. Correct outside unless the director says it is served."}
 
 # 2. Water and bridges
 - {id: newark_dumbarton, group: 2-water, name: Newark, east end of Dumbarton Bridge, lat: 37.5300, lon: -122.0400, differs_from: menlo_park}
@@ -28,9 +30,11 @@
 # 3. Mountains and one-road access
 - {id: scotts_valley, group: 3-mountains, name: Scotts Valley over CA-17, lat: 37.0511, lon: -122.0147, refs_any: [["CA 17"]], direction: S}
 - {id: santa_cruz, group: 3-mountains, name: Santa Cruz downtown, lat: 36.9741, lon: -122.0308, refs_any: [["CA 17"]]}
-- {id: saratoga_gap, group: 3-mountains, name: Skyline Blvd at Saratoga Gap, lat: 37.2577, lon: -122.1225, detour_ratio_min: 1.4}  # 13 road vs 8.5 straight miles: same 10-mile band, so test the detour
+- {id: saratoga_gap, group: 3-mountains, name: Skyline Blvd at Saratoga Gap, lat: 37.2577, lon: -122.1225, detour_ratio_min: 1.4,
+   note: "Borderline, expectation needs review: the 1.4 bar was a guess set before the run (result 1.397). Director to judge."}
 - {id: mt_hamilton, group: 3-mountains, name: Mt Hamilton Road near Lick Observatory, lat: 37.3414, lon: -121.6429, farther_than_circle: true}
-- {id: half_moon_bay, group: 3-mountains, name: Half Moon Bay (CA-92 coastal), lat: 37.4636, lon: -122.4286, refs_any: [["CA 92"]]}
+- {id: half_moon_bay, group: 3-mountains, name: Half Moon Bay (CA-92 coastal), lat: 37.4636, lon: -122.4286, refs_any: [["CA 92"]],
+   note: "Documented longest-stretch limitation: more of the trip is on I 280 than CA 92. The spec says report, no route forcing in v1. Good director-review example."}
 
 # 4. Access traps
 - {id: on_i280, group: 4-access, name: Point on the I-280 carriageway in Cupertino, lat: 37.3168, lon: -122.0215, snap_not_motorway: true}

@@ -21,6 +21,10 @@ snap:
   decision_cap_m: 100
   shadow_cap_m: 500  # 100-500 m snaps are routed and reported, never classified
   search_filter: {exclude_ramp: true, exclude_tunnel: true, exclude_bridge: true, max_road_class: trunk}
+  # If the nearest road is a track (farm/forest/park), look again with this minimum Valhalla road class.
+  # residential keeps residential, unclassified, tertiary and up; it drops service_other (driveways, parking
+  # aisles, business parks, tracks). The motorway cap and ramp exclusion above still apply. No road: snap_track.
+  track_retry_min_road_class: residential
 routing:
   costing: auto
   costing_options:
@@ -31,8 +35,10 @@ workers: 10
 data:
   pbf: data/california-261018.osm.pbf
   snapshot: data/snapshot.json
-  default_speeds: data/default_speeds.json  # OpenStreetMapSpeeds (MIT), pinned below; rebuild tiles after changing
-  default_speeds_source: github.com/OpenStreetMapSpeeds/schema@c9c6872d5ec656f5d290944b44eb1a103ed539fa
+  # v1 uses Valhalla's built-in speeds: OpenStreetMapSpeeds bent routes onto freeway loops (Alviso 8.5 -> 15.7 mi)
+  # and road miles are the v1 rule. Kept for the M2 time-only profile; never for distance bands.
+  # default_speeds: data/default_speeds.json  # OpenStreetMapSpeeds (MIT)
+  # default_speeds_source: github.com/OpenStreetMapSpeeds/schema@c9c6872d5ec656f5d290944b44eb1a103ed539fa
   boundary: data/california.poly  # Geofabrik extract polygon; cells outside are data_unavailable
   valhalla_config: data/valhalla.json
   refs_cache: data/refs-california-261018.json

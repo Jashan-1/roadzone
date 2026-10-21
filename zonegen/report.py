@@ -9,7 +9,7 @@ import h3
 
 SNAP_BUCKETS = [(0, 10), (10, 25), (25, 50), (50, 100), (100, 200), (200, 300), (300, 500)]
 NOTICE = ("**POC, pre-kickoff.** Not an approved Milestone 1 run. Not a published plan. "
-          "Time bands are free-flow estimates (no traffic data).")
+          "Time bands are free-flow and optimistic (no traffic data); road miles are the v1 rule.")
 
 
 def _props(r: dict) -> dict:
@@ -144,6 +144,10 @@ def write_outputs(out, cfg, meta, cells, hard_out, hard):
           f"{len(shadow)} cells snapped outside their cell; they were routed but stay `unknown: snap_far`. "
           f"Their shadow bands would be: "
           + (", ".join(f"{k}: {v}" for k, v in sorted(shadow_bands.items(), key=str)) or "none") + ".",
+          "", f"**Track rule:** if the nearest road is a track, the snap looks again for a road of class "
+          f"`{cfg['snap'].get('track_retry_min_road_class')}` or higher; the same snap cap applies. "
+          f"Recovered: {reasons['snapped_past_track']} cells (`snapped_past_track`). "
+          f"No real road: {reasons['snap_track']} cells (`unknown: snap_track`).",
           "", "## Corridor evidence (covered, post-Hub cells)", "",
           _table(["corridor status", "cells"], sorted(cstat.items())), "",
           _table(["direction method", "cells"], sorted(dmeth.items(), key=str)), "",

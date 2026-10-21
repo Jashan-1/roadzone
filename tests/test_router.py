@@ -6,7 +6,8 @@ from zonegen import router
 
 MI = 1609.344
 CFG = {
-    "snap": {"decision_cap_m": 100, "shadow_cap_m": 500, "search_filter": {"exclude_ramp": True}},
+    "snap": {"decision_cap_m": 100, "shadow_cap_m": 500, "search_filter": {"exclude_ramp": True},
+             "track_retry_min_road_class": "residential"},
     "routing": {"costing": "auto", "costing_options": {}},
     "base": {"lat": 37.0, "lon": -122.0},
     "coverage_m": {"metric": "distance", "limit": 50 * MI, "hub": 5 * MI, "step": 10 * MI},
@@ -22,14 +23,19 @@ IN_CELL, OUT_OF_CELL = 0.0018, 0.0060  # ~200 m (inside the cell) and ~670 m (pa
 @pytest.fixture
 def fake(monkeypatch):
     """fake(snap_offset_deg, route_miles: float | error_code: int) -> captured requests."""
-    def setup(offset, route):
+    def setup(offset, route, use="road", retry_use=None):
         sent = []
 
         def call(action, req):
             router._W["calls"] = router._W.get("calls", 0) + 1
             sent.append((action, req))
             if action == "locate":
+                if retry_use and "min_road_class" in req["locations"][0]["search_filter"]:
+                    use_now = retry_use
+                else:
+                    use_now = use
                 return [{"edges": [{"correlated_lat": PROBE["lat"] + offset, "correlated_lon": PROBE["lon"],
+                                    "edge": {"classification": {"use": use_now}},
                                     "way_id": 1}]}], None
             if isinstance(route, int):
                 return None, route
@@ -88,3 +94,17 @@ def test_far_snap_for_an_address_is_never_accepted(fake):
     fake(IN_CELL, 2.0)
     rec = router.evaluate({**PROBE, "id": "hc:x", "kind": "hard_case"})
     assert rec["status"] == "unknown" and "snap_far" in rec["reasons"]
+
+
+def test_snap_onto_a_track_is_unknown_and_not_routed(fake):
+    sent = fake(0.0001, 2.0, use="track")
+    rec = router.evaluate(PROBE)
+    assert rec["status"] == "unknown" and "snap_track" in rec["reasons"]
+    assert not [a for a, _ in sent if a == "route"]
+
+
+def test_track_snap_retries_for_a_real_road(fake):
+    sent = fake(0.0001, 2.0, use="track", retry_use="road")
+    rec = router.evaluate(PROBE)
+    assert rec["status"] == "centroid_sampled" and [a for a, _ in sent].count("locate") == 2
+    assert "snapped_past_track" in rec["reasons"] and rec["snap"]["skipped_track_dist_m"] is not None

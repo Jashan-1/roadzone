@@ -128,7 +128,7 @@ st.warning(meta.get("notice", "") + ("" if meta.get("base_confirmed") else
 mode = st.sidebar.radio("Colour by", ["Zones", "Road-mile bands", "Free-flow minute bands"])
 show_out = st.sidebar.checkbox("Show outside / unreachable cells", value=False)
 show_unknown = st.sidebar.checkbox("Show unknown cells (near a road)", value=True)
-show_noroad = st.sidebar.checkbox("Show no-road / no-map-data cells", value=False)
+show_noroad = st.sidebar.checkbox("Show no-road / track-only / no-map-data cells", value=False)
 
 corridors = sorted({c["display_corridor_id"] for c in cells if c.get("display_corridor_id")})
 ccol = {cid: (82, 82, 91) if cid == "HUB" else (194, 168, 120) if cid == "L" else PALETTE[i % len(PALETTE)]
@@ -138,7 +138,7 @@ rows = []
 for c in cells:
     if c["status"] in ("outside_coverage", "unreachable") and not show_out:
         continue
-    noroad = any(r in (c.get("reason_codes") or "") for r in ("snap_failed", "data_unavailable"))
+    noroad = any(r in (c.get("reason_codes") or "") for r in ("snap_failed", "snap_track", "data_unavailable"))
     if c["status"] == "unknown" and not (show_noroad if noroad else show_unknown):
         continue
     uncertain = c.get("hatch_status") == "hatched"

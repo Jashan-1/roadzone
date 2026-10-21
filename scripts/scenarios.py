@@ -103,12 +103,15 @@ def main(cfg_path: str = "configs/stevens_creek.yaml"):
             "band_agrees": None if o_band is None or r.get("m_dist") is None else o_band == r.get("band"),
             "ref_agrees": None if not (o_ref and ours_ref) else o_ref == ours_ref, "osrm_ref": o_ref,
             "failed": [k for k, ok in checks.items() if not ok], "pass": all(checks.values()),
+            "note": c.get("note", ""),
         })
         print(c["id"], "PASS" if rows[-1]["pass"] else f"FAIL {rows[-1]['failed']}", flush=True)
 
     groups = sorted({r["group"] for r in rows})
-    md = ["# Tricky-scenario results", "", f"Base {base['lat']}, {base['lon']} (confirmed: {base['confirmed']}). "
-          "Expectations are engineering judgement. OSRM = public demo router, a cross-check only.", "",
+    md = ["# Tricky-scenario results", "", f"Base {base['lat']}, {base['lon']} (confirmed: {base['confirmed']}).", "",
+          "- **Minutes are free-flow and optimistic** (no traffic data). Road miles are the v1 rule.",
+          "- **OSRM is a cross-check, not ground truth:** a different engine on the same OSM data.",
+          "- **Every expectation is engineering judgement** until the service director reviews it.", "",
           "| group | pass | OSRM band agrees | OSRM main highway agrees |", "|---|---|---|---|"]
     for g in groups:
         gr = [r for r in rows if r["group"] == g]
@@ -118,7 +121,7 @@ def main(cfg_path: str = "configs/stevens_creek.yaml"):
            "| " + " | ".join(rows[0]) + " |", "|" + "---|" * len(rows[0])]
     md += ["| " + " | ".join("" if v is None else str(v) for v in r.values()) + " |" for r in rows]
     Path("runs/scenarios.md").write_text("\n".join(md) + "\n")
-    print("\n".join(md[:6 + len(groups)]))
+    print("\n".join(md[:10 + len(groups)]))
 
 
 if __name__ == "__main__":

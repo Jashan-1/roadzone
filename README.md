@@ -181,7 +181,7 @@ Requires [uv](https://docs.astral.sh/uv/) and about 12 GB of free RAM for the ti
 
 ```sh
 uv sync                                                    # Python 3.12 + pinned deps
-./scripts/fetch_data.sh                                    # pinned Geofabrik NorCal snapshot -> data/
+./scripts/fetch_data.sh                                    # pinned Geofabrik California snapshot + boundary -> data/
 uv run python -m zonegen build-tiles configs/stevens_creek.yaml
 uv run pytest                                              # classifier unit tests (no router needed)
 uv run python -m zonegen run configs/stevens_creek.yaml --max-probes 200   # smoke test
@@ -189,6 +189,20 @@ uv run python -m zonegen run configs/stevens_creek.yaml    # full run; resumable
 uv run streamlit run app.py                                # map viewer at http://localhost:8501
 uv run python -m scripts.sweep                             # same pipeline at 7 California test bases
 uv run python -m scripts.compare_runs runs/OLD:runs/NEW    # per-cell band/corridor changes between two runs
+uv run python -m scripts.scenarios                         # 23 tricky cases + public OSRM cross-check -> runs/scenarios.md
+uv run python -m scripts.crosscheck runs/<run_id>          # 200-cell road-mile check vs a local OSRM (below)
+```
+
+The local OSRM cross-check needs Docker (port 5050; macOS uses 5000 for AirPlay):
+
+```sh
+./scripts/fetch_data.sh california/norcal-261018   # smaller NorCal extract; fits Docker's default memory
+mkdir -p data/osrm && ln -f data/norcal-261018.osm.pbf data/osrm/norcal.osm.pbf
+IMG=ghcr.io/project-osrm/osrm-backend:v26.4.0
+docker run --rm -v "$PWD/data/osrm:/data" $IMG osrm-extract -p /opt/car.lua /data/norcal.osm.pbf
+docker run --rm -v "$PWD/data/osrm:/data" $IMG osrm-partition /data/norcal.osrm
+docker run --rm -v "$PWD/data/osrm:/data" $IMG osrm-customize /data/norcal.osrm
+docker run -d --name roadzone-osrm -p 127.0.0.1:5050:5000 -v "$PWD/data/osrm:/data" $IMG osrm-routed --algorithm mld /data/norcal.osrm
 ```
 
 Each run writes `runs/<run_id>/cells.geojson`, `failure_report.md` and `hard_cases_results.csv`. The run ID is a hash of the config, the snapshot and the classifier version, so rerunning resumes, and `--fresh` starts over. Decisions and draft accuracy definitions are in [docs/decisions.md](docs/decisions.md).

@@ -51,18 +51,32 @@ def decode_polyline6(s: str) -> list[tuple[float, float]]:
 
 
 def snap(lat: float, lon: float) -> dict | None:
-    """Closest acceptable road edge within the shadow cap, via /locate."""
+    """Closest acceptable road edge within the shadow cap, via /locate. A track is skipped for a real road if one exists."""
     cfg = _W["cfg"]["snap"]
-    loc = {"lat": lat, "lon": lon, "search_cutoff": cfg["shadow_cap_m"], "search_filter": cfg["search_filter"]}
-    res, _ = _call("locate", {"locations": [loc], "costing": _W["cfg"]["routing"]["costing"], "verbose": False})
+    sn = _locate(lat, lon, cfg["search_filter"])
+    retry = cfg.get("track_retry_min_road_class")
+    if sn and sn["use"] == "track" and retry:
+        # locate can't filter by use; a minimum road class drops service-class edges (tracks, driveways, lots)
+        road = _locate(lat, lon, {**cfg["search_filter"], "min_road_class": retry})
+        if road:
+            road["skipped_track_dist_m"] = sn["dist_m"]
+            sn = road
+    return sn
+
+
+def _locate(lat: float, lon: float, search_filter: dict) -> dict | None:
+    cfg = _W["cfg"]["snap"]
+    loc = {"lat": lat, "lon": lon, "search_cutoff": cfg["shadow_cap_m"], "search_filter": search_filter}
+    res, _ = _call("locate", {"locations": [loc], "costing": _W["cfg"]["routing"]["costing"], "verbose": True})
     edges = (res or [{}])[0].get("edges") or []
     best = None
     for e in edges:
         pt = (e["correlated_lat"], e["correlated_lon"])
         d = haversine_m((lat, lon), pt)
         if best is None or d < best["dist_m"]:
-            best = {"lat": pt[0], "lon": pt[1], "dist_m": round(d, 1), "way_id": e.get("way_id"),
-                    "side_of_street": e.get("side_of_street")}
+            best = {"lat": pt[0], "lon": pt[1], "dist_m": round(d, 1), "way_id": e.get("edge_info", {}).get("way_id"),
+                    "side_of_street": e.get("side_of_street"),
+                    "use": e.get("edge", {}).get("classification", {}).get("use")}
     return best
 
 
@@ -113,6 +127,13 @@ def evaluate(probe: dict) -> dict:
         rec.update(status="unknown", calls=_W["calls"])
         rec["reasons"].append("snap_failed")
         return rec
+    if sn["use"] == "track":
+        # farm/forest/park tracks are not service access; routing them crawls up dirt trails (OSRM cross-check)
+        rec.update(status="unknown", calls=_W["calls"])
+        rec["reasons"].append("snap_track")
+        return rec
+    if sn.get("skipped_track_dist_m") is not None:
+        rec["reasons"].append("snapped_past_track")  # the cap checks below apply to this second snap
     far = sn["dist_m"] > cfg["snap"]["decision_cap_m"]
     # a cell centre often sits off-road; a road point inside the same hexagon still probes that cell
     if far and probe["kind"] == "cell" and h3.latlng_to_cell(sn["lat"], sn["lon"], cfg["grid"]["resolution"]) == probe["id"]:
