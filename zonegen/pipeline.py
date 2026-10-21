@@ -19,6 +19,7 @@ from .classify import FAMILY_KEY_VERSION, Corridor, bearing_deg, validate_famili
 from .refs import load_ref_index
 
 MI, MAX_CALLS_PER_PROBE = 1609.344, 5
+FORK_MIN_BRANCH_CELLS = 10  # spec §6.7: at least 10 supported probes per branch before a fork is even recorded
 
 
 def load_config(path: Path) -> dict:
@@ -155,6 +156,7 @@ def run(cfg_path: Path, fresh: bool = False, max_probes: int | None = None) -> P
             "candidate_cells": len(cells), "probes_total": len(probes), "calls": spent["calls"],
             "elapsed_s_this_session": round(time.time() - t0, 1), "refs_counts": refs["counts"]}
     cells_out, hard_out = postprocess(cfg, [p for p in probes if p["kind"] == "cell"], done, hard)
+    meta["forks"] = fork_candidates(cells_out)
     from .report import write_outputs
     write_outputs(out, cfg, meta, cells_out, hard_out, hard)
     return out
@@ -188,6 +190,25 @@ def _zone(rec: dict, letters: dict) -> tuple[str | None, str | None]:
         return f"{rec['band']}L", "L"
     letter = letters.get(tuple(c["family_key"]))
     return (f"{rec['band']}{letter}", letter) if letter else (None, None)
+
+
+def fork_candidates(cells: dict) -> list[dict]:
+    """Record (never promote) families whose trips leave the backbone onto 2+ different branches (spec §6.7).
+
+    A branch is the longest-dwell highway after the backbone, or "stays local". The cross-branch travel test
+    needs extra routing and is left for M2, so every record says so.
+    """
+    branches: dict[tuple, dict] = defaultdict(lambda: defaultdict(int))
+    for r in cells.values():
+        c = r.get("corridor") or {}
+        if r["status"] == "centroid_sampled" and c.get("status") == "supported":
+            branches[tuple(c["family_key"])][" ; ".join(c.get("next_refs") or []) or "stays local"] += 1
+    forks = []
+    for fam, b in sorted(branches.items()):
+        big = {k: n for k, n in sorted(b.items(), key=lambda kv: -kv[1]) if n >= FORK_MIN_BRANCH_CELLS}
+        if len(big) >= 2:
+            forks.append({"family": " | ".join(fam), "branches": big, "cross_branch_test": "not evaluated (M2)"})
+    return forks
 
 
 def postprocess(cfg: dict, cell_probes: list[dict], done: dict, hard: list[dict]):

@@ -73,8 +73,22 @@ def test_quadrants_half_open():
     assert [quadrant(b) for b in (0, 44.9, 45, 135, 225, 315, 359)] == ["N", "N", "E", "S", "W", "N", "N"]
 
 
-def test_edge_validation_flags_isolated_member():
-    a = Corridor("supported", ("I 280", "N"), directed_ways=[(1, "N"), (2, "N")])
-    b = Corridor("supported", ("I 280", "N"), directed_ways=[(2, "N")])
-    c = Corridor("supported", ("I 280", "N"), directed_ways=[(1, "S")])
-    assert validate_families({"a": a, "b": b, "c": c}) == {"c": ["edge_unconfirmed"]}
+def test_edge_validation_needs_most_ways_shared_by_the_family():
+    fam = ("I 280", "N")
+    core = [(1, "N"), (2, "N")]
+    members = {k: Corridor("supported", fam, directed_ways=core) for k in "abc"}
+    members["d"] = Corridor("supported", fam, directed_ways=[(1, "N"), (7, "N"), (8, "N")])  # 1/3 shared
+    members["e"] = Corridor("supported", fam, directed_ways=[(1, "S")])  # opposite direction
+    assert validate_families(members) == {"d": ["edge_unconfirmed"], "e": ["edge_unconfirmed"]}
+
+
+def test_next_refs_is_the_branch_after_the_backbone():
+    segs = [_seg(1, 9, 25, 37.0, 37.15), _seg(8, 25, 26, 37.15, 37.16, use="ramp"), _seg(3, 26, 30, 37.16, 37.2)]
+    c = classify_corridor(segs, HUB, "distance", ELIGIBLE, REFS, {})
+    assert c.refs == ("I 280",) and c.next_refs == ("US 101",)
+
+
+def test_rejoining_the_backbone_is_not_a_branch():
+    segs = [_seg(1, 9, 25, 37.0, 37.15), _seg(8, 25, 26, 37.15, 37.16, use="ramp"), _seg(2, 26, 30, 37.16, 37.2)]
+    c = classify_corridor(segs, HUB, "distance", ELIGIBLE, REFS, {})
+    assert c.refs == ("I 280",) and c.next_refs == ()

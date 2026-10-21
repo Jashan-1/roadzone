@@ -8,6 +8,8 @@ FAMILY_KEY_VERSION = "fk-v1.0"
 LOCAL = "local"
 QUADRANTS = ("N", "E", "S", "W")  # half-open: N [315,45), E [45,135), S [135,225), W [225,315)
 MIN_DISPLACEMENT_M = 500  # below this, a bearing-derived direction is negligible
+EDGE_MIN_SHARERS = 3  # a directed way counts as shared when this many family members use it (self + 2 others)
+EDGE_MIN_SHARE = 0.5  # a member is edge-confirmed when at least this share of its backbone ways is shared
 
 
 @dataclass
@@ -37,6 +39,7 @@ class Corridor:
     tied: list = field(default_factory=list)
     reasons: list = field(default_factory=list)
     directed_ways: list = field(default_factory=list)
+    next_refs: tuple = ()  # longest-dwell highway after the backbone: the branch a fork diagnostic groups by
 
 
 # --- bands -----------------------------------------------------------------
@@ -136,6 +139,10 @@ def classify_corridor(segments: list[Segment], hub_limit: float, metric: str,
     c = Corridor(status="supported", family_key=None, refs=best["refs"], dwell_s=round(best["dwell"], 1),
                  directed_ways=[(s.way_id, quadrant(s.heading)) for s in best["segs"]])
     c.tied = [list(r["refs"]) for r in runs[1:] if abs(r["dwell"] - best["dwell"]) < 1e-6]
+    # rejoining the backbone's own highway after a ramp is a continuation, not a branch
+    downstream = sorted((r for r in runs if r["first"] > best["last"] and r["refs"] != best["refs"]),
+                        key=lambda r: (-r["dwell"], r["first"]))
+    c.next_refs = downstream[0]["refs"] if downstream else ()
     if c.tied:
         c.reasons.append("tie")
     if not best["refs"]:
@@ -165,10 +172,11 @@ def classify_corridor(segments: list[Segment], hub_limit: float, metric: str,
 
 
 def validate_families(corridors: dict) -> dict:
-    """Step 7: flag members of a family that share no directed way with any other member.
+    """Step 7: flag members whose backbone mostly runs on ways the rest of the family doesn't use.
 
-    `corridors` maps cell id -> Corridor. Returns cell id -> list of added reason codes.
-    Single-member families are unconfirmed by definition; lack of overlap alone is a flag, not a regroup.
+    A member is confirmed when at least EDGE_MIN_SHARE of its directed backbone ways are used by at least
+    EDGE_MIN_SHARERS family members. `corridors` maps cell id -> Corridor; returns cell id -> added reason codes.
+    Lack of overlap is a review flag, never a regroup.
     """
     by_family: dict[tuple, list] = {}
     for cid, c in corridors.items():
@@ -178,6 +186,7 @@ def validate_families(corridors: dict) -> dict:
     for members in by_family.values():
         counts = Counter(dw for cid in members for dw in set(corridors[cid].directed_ways))
         for cid in members:
-            if not any(counts[dw] > 1 for dw in set(corridors[cid].directed_ways)):
+            ways = set(corridors[cid].directed_ways)
+            if not ways or sum(counts[dw] >= EDGE_MIN_SHARERS for dw in ways) / len(ways) < EDGE_MIN_SHARE:
                 flags[cid] = ["edge_unconfirmed"]
     return flags

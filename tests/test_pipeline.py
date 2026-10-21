@@ -38,3 +38,14 @@ def test_signed_direction_prefers_relation_tag_over_forward_role():
     assert signed_direction("", "S") == "south"  # abbreviated tag
     assert signed_direction("west", "") == "west"  # older style: cardinal member role
     assert signed_direction("backward", "Northbound") is None
+
+
+def test_fork_candidates_need_two_branches_of_ten():
+    from zonegen.pipeline import fork_candidates
+    def cell(i, nxt):
+        return f"c{i}", {"status": "centroid_sampled", "corridor": {"status": "supported", "family_key": ["I 680", "N"],
+                                                                     "next_refs": nxt}}
+    cells = dict([cell(i, ["I 580"]) for i in range(12)] + [cell(100 + i, []) for i in range(10)]
+                 + [cell(200 + i, ["CA 84"]) for i in range(9)])  # 9 cells: too small to count as a branch
+    assert fork_candidates(cells) == [{"family": "I 680 | N", "branches": {"I 580": 12, "stays local": 10},
+                                       "cross_branch_test": "not evaluated (M2)"}]

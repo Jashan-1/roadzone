@@ -189,6 +189,7 @@ uv run python -m scripts.sweep                             # same pipeline at 7 
 uv run python -m scripts.compare_runs runs/OLD:runs/NEW    # per-cell band/corridor changes between two runs
 uv run python -m scripts.scenarios                         # 23 tricky cases + public OSRM cross-check -> runs/scenarios.md
 uv run python -m scripts.crosscheck runs/<run_id>          # 200-cell road-mile check vs a local OSRM (below)
+./scripts/package.sh runs/<run_id>                         # zip the M1 deliverables for reviewers (not committed)
 ```
 
 The local OSRM cross-check needs Docker (port 5050; macOS uses 5000 for AirPlay):

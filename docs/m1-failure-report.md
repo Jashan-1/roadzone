@@ -1,7 +1,7 @@
 # RoadZone M1: failure report and recommendation
 
 **Status:** proof of concept, pre-kickoff. Not an approved Milestone 1 run and not a published plan.
-**Date:** 2026-10-21 · **Run:** `stevens-creek-poc-c110bee325` · **Spec:** Technical Specification v0.2, §16.1
+**Date:** 2026-10-21 · **Run:** `stevens-creek-poc-c817c05b38` · **Spec:** Technical Specification v0.2, §16.1
 
 > **Read every number with these caveats:**
 > - **Provisional base.** The depot point (37.32305, -121.97000) is a placeholder on Stevens Creek Blvd, not the dealer-confirmed van entrance. Every number shifts if it moves.
@@ -68,6 +68,16 @@ Snap evidence:
 - **Band disagreements are mostly boundary hair-splits.** On the reference sample, 15 of the 23 band disagreements have one router within 0.5 miles of a band edge. Only **8 of 200 (4%)** disagree away from an edge.
 - **Cells recovered past a track score in line with the rest:** 95% within ±10% and 90% same band (n=21).
 
+### Corridor checks: edges and forks
+
+- **Directed-edge validation:** 9 zoned cells are `edge_unconfirmed`. Under half of their main-highway road segments are shared by at least 3 cells of the same corridor. They are flagged for review, not regrouped.
+- **Fork candidates (recorded, not promoted):** 11 corridors split into 2+ branches of at least 10 cells after leaving the main highway. Examples:
+  - **I 680 N:** stays local 465, continues onto I 580 101.
+  - **US 101 S:** stays local 532, CA 152 114, CA 25 66.
+  - **CA 17 S:** CA 1 518, stays local 495, CA 9 98.
+
+  The spec's cross-branch travel test (at least 10 minutes extra between branches) is not evaluated; that and any zone split belong to M2. The full table is in the run's failure report.
+
 ### Tricky scenarios (31 public places, run through the same classifier, cross-checked with public OSRM)
 
 | Group | Pass | Notes |
@@ -93,7 +103,7 @@ Full table in [decisions.md](decisions.md).
 ## Not done in M1 (by design)
 
 - Production API, database, dealer UI, publishing, ZIP batch, GHL, geocoding, capacity planning.
-- Fork promotion, gateways and alternate routes.
+- Fork **promotion** and the cross-branch travel test (forks are recorded only), gateways and alternate routes.
 - Traffic or rush-hour profiles.
 - Multi-market qualification (M4).
 

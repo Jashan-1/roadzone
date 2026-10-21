@@ -180,7 +180,7 @@ def evaluate(probe: dict) -> dict:
         "status": corridor.status, "family_key": list(corridor.family_key) if corridor.family_key else None,
         "refs": list(corridor.refs), "direction": corridor.direction, "direction_method": corridor.direction_method,
         "bearing": corridor.bearing, "dwell_s": corridor.dwell_s, "tied": corridor.tied,
-        "directed_ways": [list(d) for d in corridor.directed_ways]}
+        "directed_ways": [list(d) for d in corridor.directed_ways], "next_refs": list(corridor.next_refs)}
     if far:
         rec["status"] = "unknown"  # shadow result kept above; never classified, not even as outside
         rec["reasons"].append("snap_far")

@@ -25,6 +25,7 @@ def _props(r: dict) -> dict:
         "snap_lat": s.get("lat"), "snap_lon": s.get("lon"), "snap_dist_m": s.get("dist_m"), "snap_way_id": s.get("way_id"),
         "corridor_status": c.get("status"), "family_key": " | ".join(c["family_key"]) if c.get("family_key") else None,
         "refs": " ; ".join(c.get("refs") or []) or None, "direction": c.get("direction"),
+        "branch": " ; ".join(c.get("next_refs") or []) or None,
         "direction_method": c.get("direction_method"), "dwell_s": c.get("dwell_s"),
         "tied": json.dumps(c["tied"]) if c.get("tied") else None,
         "candidate_zones": ",".join(r.get("candidate_zones") or []) or None,
@@ -155,6 +156,12 @@ def write_outputs(out, cfg, meta, cells, hard_out, hard):
           _table(["direction method", "cells"], sorted(dmeth.items(), key=str)), "",
           _table(["family_key", "cells"], fams.most_common()), "",
           _table(["zone", "cells"], sorted(zones.items())),
+          "", "## Fork candidates (recorded, not promoted)", "",
+          "A corridor whose trips leave the main highway onto 2+ different branches with at least 10 cells each. "
+          "Spec §6.7: M1 records these; the cross-branch travel test and any split belong to M2.", "",
+          _table(["corridor", "branches (cells)", "cross-branch test"],
+                 [[f["family"], ", ".join(f"{k}: {n}" for k, n in f["branches"].items()), f["cross_branch_test"]]
+                  for f in meta.get("forks", [])]) if meta.get("forks") else "None recorded.",
           "", "## Reason codes (cells)", "", _table(["reason", "cells"], reasons.most_common()),
           "", "## Distance band × free-flow time band (covered cells)", "",
           _table(["distance band", "time band", "cells"], [[k[0], k[1], v] for k, v in sorted(crosstab.items(), key=str)]),
