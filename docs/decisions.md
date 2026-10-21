@@ -19,6 +19,7 @@ Status: proof of concept for a CEO demo, **pre-kickoff**. This does not change t
 | 13 | **The run ID includes a hash of the router, classifier and refs code.** The refs cache is keyed the same way. | A code change can never silently resume results produced by older code. |
 | 14 | **`snapshot.json` is written by `build-tiles`, not by the download.** `run` refuses to start if it names a different PBF than the config. | The snapshot record always describes the routing graph that was actually built. |
 | 15 | **The signed direction comes from the relation's `direction` tag (north/N…) before the member role.** Roles `forward`/`backward` carry no cardinal direction. | California splits most freeways into north/south relations whose members are `forward`. Letting `forward` win, plus clashes with the undirected parent relation, threw the signed direction away, so 33–47% of compass-guessed directions sat within 15° of a quadrant edge. |
+| 16 | **Valhalla default speeds come from OpenStreetMapSpeeds** (`data.default_speeds`, MIT, pinned to commit c9c6872, data from 2022). The file's checksum is recorded in `snapshot.json`. | Better free-flow speeds by region, density and road class than Valhalla's built-in defaults, at no cost, and covering the US, Canada and the UK. This is still not traffic. Speeds also change which route is fastest, so road-mile bands can shift slightly; every run records the speed profile it used. |
 
 ## Draft accuracy definitions (needed before any 99%/95% claim)
 

@@ -31,6 +31,8 @@ workers: 10
 data:
   pbf: data/california-261018.osm.pbf
   snapshot: data/snapshot.json
+  default_speeds: data/default_speeds.json  # OpenStreetMapSpeeds (MIT), pinned below; rebuild tiles after changing
+  default_speeds_source: github.com/OpenStreetMapSpeeds/schema@c9c6872d5ec656f5d290944b44eb1a103ed539fa
   boundary: data/california.poly  # Geofabrik extract polygon; cells outside are data_unavailable
   valhalla_config: data/valhalla.json
   refs_cache: data/refs-california-261018.json

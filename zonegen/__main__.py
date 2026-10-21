@@ -21,6 +21,8 @@ def build_tiles(cfg_path: Path):
     vcfg = valhalla.get_config(tile_extract="", tile_dir=tiles)
     vcfg["mjolnir"]["admin"] = str((tiles.parent / "admins.sqlite").resolve())
     vcfg["mjolnir"]["concurrency"] = os.cpu_count()
+    if d.get("default_speeds"):  # OpenStreetMapSpeeds typical speeds by region, density and road class
+        vcfg["mjolnir"]["default_speeds_config"] = str(Path(d["default_speeds"]).resolve())
     Path(d["valhalla_config"]).write_text(json.dumps(vcfg, indent=2))
     for tool in ("valhalla_build_admins", "valhalla_build_tiles"):
         subprocess.run([sys.executable, "-m", "valhalla", tool, "-c", d["valhalla_config"], str(pbf)], check=True)
@@ -34,6 +36,10 @@ def build_tiles(cfg_path: Path):
     snap["osm_timestamp"] = osmium.io.Reader(str(pbf), osmium.osm.osm_entity_bits.NOTHING).header() \
         .get("osmosis_replication_timestamp")
     snap["router"] = "pyvalhalla " + valhalla.__version__
+    if d.get("default_speeds"):
+        speeds = Path(d["default_speeds"])
+        snap["default_speeds"] = {"file": speeds.name, "source": d.get("default_speeds_source"),
+                                  "sha256": hashlib.sha256(speeds.read_bytes()).hexdigest()}
     snap_path.write_text(json.dumps(snap, indent=2))
     print(json.dumps(snap, indent=2))
 
