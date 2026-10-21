@@ -1,7 +1,7 @@
 # Hard-case probes (spec §15.3 fixture classes). Coordinates are approximate public points, not customer addresses.
 # Expectations are engineering guesses until a service director confirms them; `confirmed_by` says so.
 # expected.refs_any lists acceptable normalized ref sets; status/band/direction are checked only when present.
-- {id: hub_santa_clara, name: Santa Clara near Valley Fair, category: hub, lat: 37.3250, lon: -121.9450,
+- {id: hub_santa_clara, name: Santa Clara near Valley Fair (on-road point), category: hub, lat: 37.32597, lon: -121.94494,
    expected: {status: centroid_sampled, band: 0}, confirmed_by: unconfirmed}
 - {id: hub_cupertino, name: Cupertino civic center, category: hub, lat: 37.3229, lon: -122.0322,
    expected: {status: centroid_sampled}, confirmed_by: unconfirmed}
