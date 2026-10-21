@@ -15,8 +15,8 @@ All numbers use a **provisional base** (placeholder point, not the confirmed van
 
 | Check | Result |
 |---|---|
-| Agreement with an independent router (OSRM), 200 cells never used for tuning | Road miles within ±10%: **88–94%** · same distance band: **88–92%** (most band disagreements are within 0.5 mi of a band edge) |
-| Tricky scenarios (corridors, water, mountains, freeway traps, edges, hill homes) | **28/31** pass. The 3 failures are documented (Half Moon Bay labelled I-280, Walnut Creek just outside 50 mi, Saratoga Gap borderline). |
+| Agreement with an independent router (OSRM), 200 cells never used for tuning | Road miles within ±10%: **88–94% across three untouched samples (reference 88%)** · same distance band: 88–92% (reference 88%; most disagreements are within 0.5 mi of a band edge) |
+| Tricky scenarios (corridors, water, mountains, freeway traps, edges, hill homes) | **29/31** pass. The 2 failures are documented: Half Moon Bay labelled I-280 (the longest-stretch limit) and Saratoga Gap borderline (expectation needs review). Walnut Creek's expectation was corrected: both routers put it just past 50 miles. |
 | Hill homes on the address path | **8/8** get a band; track or unnamed-road access is flagged for review, never left as a silent "unknown" |
 | Stevens Creek hard cases | 16/17 |
 

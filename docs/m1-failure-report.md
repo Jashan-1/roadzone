@@ -12,7 +12,7 @@
 ## Recommendation: proceed, with known limits
 
 The road-aware approach works and is explainable:
-- On samples that played no part in tuning, it agrees with an independent router on road miles for **88–94%** of cells and on the distance band for **88–92%**.
+- It agrees with an independent router on road miles within ±10% for **88–94% of cells across three untouched samples (reference 88%)**, and on the distance band for 88–92% (reference 88%).
 - It splits same-distance areas by highway as intended (Menlo Park, Milpitas and Newark each get their own corridor).
 - It marks uncertainty instead of hiding it.
 
@@ -72,7 +72,7 @@ Snap evidence:
 
 | Group | Pass | Notes |
 |---|---|---|
-| 1. Corridors at the same distance | 6/7 | Walnut Creek is 50.9 miles, outside (OSRM 50.6). Both routers agree it's past the limit. |
+| 1. Corridors at the same distance | 7/7 | Walnut Creek: **expectation corrected**. I first expected it covered via I-680, but both routers put it just past 50 miles (ours 50.9, OSRM 50.6), so "outside" is right unless the director says it's served. |
 | 2. Water and bridges | 5/5 | Bay and reservoir points are unknown, never outside |
 | 3. Mountains | 3/5 | Half Moon Bay is labelled I-280 (limit 1). Saratoga Gap is borderline (road/straight-line 1.397 against a guessed 1.4 bar), so the expectation needs review. |
 | 4. Freeway traps | 2/2 | Points on I-280 and CA-85 snap to a non-motorway road |

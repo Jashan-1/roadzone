@@ -18,8 +18,8 @@
 - {id: los_altos_a, group: 1-corridor, name: Los Altos near CA-85 (A), lat: 37.3700, lon: -122.0900}
 - {id: los_altos_b, group: 1-corridor, name: Los Altos near CA-85 (B, ~1 km away), lat: 37.3780, lon: -122.1010}
 - {id: east_san_jose, group: 1-corridor, name: East San Jose past the 280/680 junction, lat: 37.3500, lon: -121.8300}
-- {id: walnut_creek, group: 1-corridor, name: Walnut Creek (via 680), lat: 37.9101, lon: -122.0652, refs_any: [["I 680"]], direction: N,
-   note: "Outside at 55 road miles; OSRM says 50.6, so both routers agree it is past 50. Correct outside unless the director says it is served."}
+- {id: walnut_creek, group: 1-corridor, name: Walnut Creek (via 680), lat: 37.9101, lon: -122.0652, status: outside_coverage,
+   note: "Expectation corrected: originally expected covered via I 680 N. Both routers put it just past 50 road miles (ours 50.9, OSRM 50.6), so outside is right unless the director says it is served."}
 
 # 2. Water and bridges
 - {id: newark_dumbarton, group: 2-water, name: Newark, east end of Dumbarton Bridge, lat: 37.5300, lon: -122.0400, differs_from: menlo_park}
