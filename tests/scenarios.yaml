@@ -1,0 +1,43 @@
+# Tricky-scenario probes for the Stevens Creek base (placeholder). Public places only, no customer data.
+# Expectations are engineering judgement, not director-confirmed. Checks (all optional per case):
+#   status / status_not: exact status or a status that must NOT occur
+#   refs_any: acceptable normalized ref sets for the corridor; direction: N/E/S/W
+#   differs_from: id of another case that must get a different corridor family (same-area, different highway)
+#   farther_than_circle: road band must exceed the straight-line ("circle") band
+#   detour_ratio_min: road miles / straight-line miles must be at least this (one-road mountain access)
+#   snap_not_motorway: the snapped road must not be a motorway/ramp
+#   not_extent_review: no extent_review_required reason
+# Every case is also routed by OSRM (public demo server) as an independent cross-check.
+
+# 1. Corridor confusion
+- {id: menlo_park, group: 1-corridor, name: Menlo Park (west of 101), lat: 37.4530, lon: -122.1817, differs_from: milpitas}
+- {id: east_palo_alto, group: 1-corridor, name: East Palo Alto (east of 101), lat: 37.4688, lon: -122.1411}
+- {id: milpitas, group: 1-corridor, name: Milpitas (880/680 side), lat: 37.4323, lon: -121.8996, differs_from: menlo_park}
+- {id: los_altos_a, group: 1-corridor, name: Los Altos near CA-85 (A), lat: 37.3700, lon: -122.0900}
+- {id: los_altos_b, group: 1-corridor, name: Los Altos near CA-85 (B, ~1 km away), lat: 37.3780, lon: -122.1010}
+- {id: east_san_jose, group: 1-corridor, name: East San Jose past the 280/680 junction, lat: 37.3500, lon: -121.8300}
+- {id: walnut_creek, group: 1-corridor, name: Walnut Creek (via 680), lat: 37.9101, lon: -122.0652, refs_any: [["I 680"]], direction: N}
+
+# 2. Water and bridges
+- {id: newark_dumbarton, group: 2-water, name: Newark, east end of Dumbarton Bridge, lat: 37.5300, lon: -122.0400, differs_from: menlo_park}
+- {id: hayward_shore, group: 2-water, name: Hayward, east end of San Mateo Bridge, lat: 37.6330, lon: -122.0900}
+- {id: alviso_marina, group: 2-water, name: Alviso marina, lat: 37.4280, lon: -121.9800, status_not: outside_coverage}
+- {id: lexington_reservoir, group: 2-water, name: Middle of Lexington Reservoir, lat: 37.1970, lon: -121.9880, status: unknown}
+- {id: bay_water, group: 2-water, name: Open water in the South Bay, lat: 37.5500, lon: -122.1500, status: unknown}
+
+# 3. Mountains and one-road access
+- {id: scotts_valley, group: 3-mountains, name: Scotts Valley over CA-17, lat: 37.0511, lon: -122.0147, refs_any: [["CA 17"]], direction: S}
+- {id: santa_cruz, group: 3-mountains, name: Santa Cruz downtown, lat: 36.9741, lon: -122.0308, refs_any: [["CA 17"]]}
+- {id: saratoga_gap, group: 3-mountains, name: Skyline Blvd at Saratoga Gap, lat: 37.2577, lon: -122.1225, detour_ratio_min: 1.4}  # 13 road vs 8.5 straight miles: same 10-mile band, so test the detour
+- {id: mt_hamilton, group: 3-mountains, name: Mt Hamilton Road near Lick Observatory, lat: 37.3414, lon: -121.6429, farther_than_circle: true}
+- {id: half_moon_bay, group: 3-mountains, name: Half Moon Bay (CA-92 coastal), lat: 37.4636, lon: -122.4286, refs_any: [["CA 92"]]}
+
+# 4. Access traps
+- {id: on_i280, group: 4-access, name: Point on the I-280 carriageway in Cupertino, lat: 37.3168, lon: -122.0215, snap_not_motorway: true}
+- {id: on_ca85, group: 4-access, name: Point on the CA-85 carriageway, lat: 37.3260, lon: -122.0610, snap_not_motorway: true}
+
+# 5. Boundaries and limits
+- {id: depot, group: 5-boundary, name: The base point itself, lat: 37.32305, lon: -121.97000, status: centroid_sampled}
+- {id: next_door, group: 5-boundary, name: About 100 m from the base, lat: 37.32390, lon: -121.97000, status: centroid_sampled}
+- {id: gilroy, group: 5-boundary, name: Gilroy near the 50-mile edge, lat: 37.0058, lon: -121.5683, not_extent_review: true}
+- {id: monterey, group: 5-boundary, name: Monterey beyond 50 road miles, lat: 36.6002, lon: -121.8947, status: outside_coverage}
