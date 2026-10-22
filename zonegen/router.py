@@ -4,7 +4,7 @@ import json
 import h3
 import valhalla
 
-from .classify import FAMILY_KEY_VERSION, Segment, band_index, classify_corridor, haversine_m
+from .classify import FAMILY_KEY_VERSION, Segment, band_index, classify_corridor, haversine_m, is_backbone
 
 NO_PATH_CODES = {442, 443}  # "no path could be found" variants: a real negative, not a data outage
 _W: dict = {}  # per-process worker state
@@ -119,17 +119,81 @@ def trace_segments(shape: str) -> tuple[list[Segment] | None, list[str]]:
     return None, ["trace_failed"]
 
 
+def compact(segs: list[Segment], eligible: set[str]) -> list[list]:
+    """Outbound path for the cache: backbone edges kept, each run of other edges folded into one break marker.
+
+    The classifier only reads backbone edges; any non-backbone edge breaks a run, so one marker per gap gives
+    the same corridor for every Hub size. Rounded so cached and fresh results match exactly.
+    """
+    out = []
+    for s in segs:
+        span = [round(s.start_m, 1), round(s.end_m, 1), round(s.start_s, 1), round(s.end_s, 1)]
+        if is_backbone(s, eligible):
+            out.append([s.way_id, *span, s.road_class, s.use, *(round(x, 6) for x in (*s.start_pt, *s.end_pt)),
+                        s.heading])
+        elif out and out[-1][0] is None:
+            out[-1][2], out[-1][4] = span[1], span[3]
+        else:
+            out.append([None, *span])
+    return out
+
+
+def expand(rows: list[list]) -> list[Segment]:
+    return [Segment(r[0], *r[1:5], r[5], r[6], (r[7], r[8]), (r[9], r[10]), r[11]) if r[0] is not None
+            else Segment(0, *r[1:5], "", "", (0.0, 0.0), (0.0, 0.0)) for r in rows]
+
+
+def _measure_of(m: float, s: float, metric: str) -> float:
+    return m if metric == "distance" else s
+
+
+def measure(probe: dict) -> dict:
+    """The expensive part, independent of Hub/band sizes: snap, out and back routes, outbound road list.
+
+    The road list is traced for anything within the coverage limit, so a later run at the same base with a
+    different Hub or band size (or a smaller limit) can reuse it without routing.
+    """
+    _W["calls"] = 0
+    cfg, is_cell = _W["cfg"], probe["kind"] == "cell"
+    cov = cfg["coverage_m"]
+    sn = snap(probe["lat"], probe["lon"], skip_tracks=is_cell)
+    raw = {"snap": sn, "trace_limit": cov["limit"]}
+    if sn is not None and not (sn["use"] == "track" and is_cell):
+        out, e_out = route(cfg["base"], sn)
+        back, e_back = route(sn, cfg["base"])
+        raw["errors"] = [e_out, e_back]
+        if out is not None and back is not None:
+            raw["out"], raw["back"] = {"m": out["m"], "s": out["s"]}, {"m": back["m"], "s": back["s"]}
+            if _measure_of(max(out["m"], back["m"]), max(out["s"], back["s"]), cov["metric"]) <= cov["limit"]:
+                segs, raw["trace_reasons"] = trace_segments(out["shape"])
+                raw["segs"] = compact(segs, set(cfg["backbone_classes"])) if segs else None
+    raw["calls"] = _W["calls"]
+    return raw
+
+
+def reusable(raw: dict, cov: dict) -> bool:
+    """Whether a cached measurement answers this coverage rule without routing again."""
+    if "out" not in raw or "trace_reasons" in raw:
+        return True
+    return _measure_of(max(raw["out"]["m"], raw["back"]["m"]), max(raw["out"]["s"], raw["back"]["s"]),
+                       cov["metric"]) > cov["limit"]  # untraced only because it was past the old limit
+
+
 def evaluate(probe: dict) -> dict:
     """Route one probe (cell centroid or reviewed point) out and back and classify it. Pure function of inputs."""
-    _W["calls"] = 0
+    return decide(probe, measure(probe))
+
+
+def decide(probe: dict, raw: dict) -> dict:
+    """Classify a measured probe under the run's coverage rule: no routing calls."""
     cfg = _W["cfg"]
     cov, tv = cfg["coverage_m"], cfg["time_view_s"]
-    rec = {**probe, "reasons": [], "family_key_version": FAMILY_KEY_VERSION}
+    rec = {**probe, "reasons": [], "family_key_version": FAMILY_KEY_VERSION, "calls": raw["calls"]}
     is_cell = probe["kind"] == "cell"
-    sn = snap(probe["lat"], probe["lon"], skip_tracks=is_cell)
+    sn = raw["snap"]
     rec["snap"] = sn
     if sn is None:
-        rec.update(status="unknown", calls=_W["calls"])
+        rec["status"] = "unknown"
         rec["reasons"].append("snap_failed")
         return rec
     if sn["use"] == "track" and not is_cell:
@@ -137,7 +201,7 @@ def evaluate(probe: dict) -> dict:
         rec["review_required"] = True
     elif sn["use"] == "track":
         # farm/forest/park tracks are not service access; routing them crawls up dirt trails (OSRM cross-check)
-        rec.update(status="unknown", calls=_W["calls"])
+        rec["status"] = "unknown"
         rec["reasons"].append("snap_track")
         return rec
     if sn.get("skipped_track_dist_m") is not None:
@@ -147,16 +211,13 @@ def evaluate(probe: dict) -> dict:
     if far and is_cell and h3.latlng_to_cell(sn["lat"], sn["lon"], cfg["grid"]["resolution"]) == probe["id"]:
         far = False
         rec["reasons"].append("snap_in_cell")
-    base = cfg["base"]
-    out, e_out = route(base, sn)
-    back, e_back = route(sn, base)
+    out, back = raw.get("out"), raw.get("back")
     if out is None or back is None:
-        codes = {c for c in (e_out, e_back) if c is not None}
+        codes = {c for c in raw["errors"] if c is not None}
         # a far snap is never trusted enough to call a cell confirmed unreachable (spec §6.3)
         rec["status"] = "unreachable" if codes <= NO_PATH_CODES and not far else "unknown"
         rec["reasons"].append("snap_far" if far else
                               "unreachable" if rec["status"] == "unreachable" else f"route_failed:{sorted(codes)}")
-        rec["calls"] = _W["calls"]
         return rec
     m_dist, m_time = max(out["m"], back["m"]), max(out["s"], back["s"])
     rec.update(out_m=round(out["m"], 1), back_m=round(back["m"], 1), out_s=round(out["s"], 1),
@@ -166,8 +227,8 @@ def evaluate(probe: dict) -> dict:
     rec["band"] = band
     corridor = None
     if band is not None and band > 0:
-        segs, treasons = trace_segments(out["shape"])
-        rec["reasons"] += treasons
+        segs = expand(raw["segs"]) if raw.get("segs") else None
+        rec["reasons"] += raw["trace_reasons"]
         if segs:
             refs = _W["refs"]
             corridor = classify_corridor(segs, cov["hub"], cov["metric"], set(cfg["backbone_classes"]),
@@ -192,5 +253,10 @@ def evaluate(probe: dict) -> dict:
         rec["reasons"].append("corridor_review_required")
     else:
         rec["status"] = "centroid_sampled"
-    rec["calls"] = _W["calls"]
     return rec
+
+
+def measure_and_decide(probe: dict) -> tuple[dict, dict]:
+    """Pool entry point: the raw measurement (for the route cache) and its classification."""
+    raw = measure(probe)
+    return raw, decide(probe, raw)

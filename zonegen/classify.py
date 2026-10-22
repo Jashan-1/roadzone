@@ -103,6 +103,10 @@ def quadrant(b: float) -> str:
 
 # --- classifier -----------------------------------------------------------------
 
+def is_backbone(seg: Segment, eligible_classes: set[str]) -> bool:
+    return seg.road_class in eligible_classes and seg.use not in ("ramp", "turn_channel")
+
+
 def classify_corridor(segments: list[Segment], hub_limit: float, metric: str,
                       eligible_classes: set[str], way_refs: dict, way_roles: dict) -> Corridor:
     """Steps 1-6 of §6.5.1. `way_refs[way_id]` -> raw refs; `way_roles[way_id]` -> {ref: role}."""
@@ -118,7 +122,7 @@ def classify_corridor(segments: list[Segment], hub_limit: float, metric: str,
     # 2-4. Runs of consecutive eligible segments with the same normalized ref set; dwell in seconds.
     runs, cur = [], None
     for i, (seg, dwell) in enumerate(post):
-        eligible = seg.road_class in eligible_classes and seg.use not in ("ramp", "turn_channel")
+        eligible = is_backbone(seg, eligible_classes)
         key = ref_set(way_refs.get(seg.way_id, ())) if eligible else None
         if key is not None and cur is not None and cur["refs"] == key and cur["last"] == i - 1:
             cur["segs"].append(seg)

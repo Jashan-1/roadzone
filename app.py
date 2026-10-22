@@ -50,8 +50,8 @@ def boundary():
 with st.sidebar.form("new_run"):
     st.subheader("New run")
     name = st.text_input("Run name", placeholder="e.g. Santa Rosa dealership")
-    lat = st.number_input("Base latitude", value=37.32305, format="%.5f")
-    lon = st.number_input("Base longitude", value=-121.97000, format="%.5f")
+    where = st.text_input("Base location (lat, lon)", value="37.32305, -121.97000",
+                          help="Paste coordinates as copied from Google Maps.")
     limit = st.number_input("Max coverage (road miles)", 5.0, 80.0, 50.0, 5.0)
     hub = st.number_input("Hub size (road miles)", 1.0, 40.0, 5.0, 1.0)
     step = st.number_input("Band size (road miles)", 1.0, 50.0, 10.0, 1.0)
@@ -60,8 +60,11 @@ if go and not (Path("data/valhalla_tiles").exists() and
                Path(load_config(Path("configs/stevens_creek.yaml"))["data"]["pbf"]).exists()):
     st.sidebar.error("Map data is still downloading or building. Try again when it finishes.")
 elif go:
-    if not in_boundary(boundary(), lat, lon):
-        st.sidebar.error("Outside the loaded map data (California).")
+    lat, lon = lookup.parse_coordinates(where) or (None, None)
+    if lat is None:
+        st.sidebar.error(f"Couldn't read '{where}'. Use 'latitude, longitude', e.g. 33.76908, -117.85139.")
+    elif not in_boundary(boundary(), lat, lon):
+        st.sidebar.error(f"{lat:.5f}, {lon:.5f} is outside the loaded map data (California).")
     elif hub >= limit:
         st.sidebar.error("Hub must be smaller than the max coverage.")
     else:
@@ -197,10 +200,8 @@ def deck(cells: list[dict], base: list[float], zoom: float = 8.5) -> pdk.Deck:
     # plain-text tooltip: corridor names come from editable OSM tags and must not be rendered as HTML
     tooltip = {"text": "{zone_code} {status} {patch}\n{m_dist_mi} mi · {m_time_min} free-flow min\n"
                        "corridor: {family_key} ({direction_method})\nsnap: {snap_dist_m} m\nreasons: {reason_codes}"}
-    # a tiny offset per re-center click changes the spec, which makes the chart reset its view to the base
-    nudge = st.session_state["view_nonce"] * 1e-7
     return pdk.Deck(layers=[*map_layers(cells), base_layer], tooltip=tooltip, map_style="light",
-                    initial_view_state=pdk.ViewState(latitude=base[1] + nudge, longitude=base[0], zoom=zoom))
+                    initial_view_state=pdk.ViewState(latitude=base[1], longitude=base[0], zoom=zoom))
 
 
 def counts(cells: list[dict]) -> Counter:
@@ -212,7 +213,9 @@ tab_map, tab_addr, tab_cmp, tab_report = st.tabs(["Map", "Addresses", "Compare b
 with tab_map:
     if st.button("⌖ Re-center on base", help="Jump back to the dealership after panning or zooming away"):
         st.session_state["view_nonce"] += 1
-    st.pydeck_chart(deck(cells, base), height=650)
+    # Streamlit keeps a panned view across reruns; a new container key per click remounts the map at the base
+    with st.container(key=f"map{st.session_state['view_nonce']}"):
+        st.pydeck_chart(deck(cells, base), height=650)
     corridors, ccol = corridor_colours(cells)
     left, right = st.columns(2)
     with left:

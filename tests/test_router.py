@@ -116,3 +116,38 @@ def test_address_on_a_track_is_routed_and_flagged_for_review(fake):
     assert rec["status"] == "centroid_sampled" and rec["band"] == 0
     assert rec["review_required"] and "access_via_track" in rec["reasons"]
     assert [a for a, _ in sent].count("locate") == 1  # the address keeps its own access, no second look
+
+
+def _seg(i, cls, refs_way, m0, m1, use="road"):
+    return router.Segment(refs_way, m0, m1, m0 / 30, m1 / 30, cls, use, (37 + m0 / 1e5, -122.0), (37 + m1 / 1e5, -122.0), 0)
+
+
+def test_cached_road_list_gives_the_same_corridor_for_any_hub():
+    from zonegen.classify import classify_corridor
+    # local streets, freeway A, a ramp, freeway B, local streets again
+    segs = [_seg(0, "residential", 9, 0, 3000), _seg(1, "motorway", 1, 3000, 12000),
+            _seg(2, "motorway", 1, 12000, 20000), _seg(3, "motorway", 3, 20000, 20400, use="ramp"),
+            _seg(4, "secondary", 9, 20400, 21000), _seg(5, "motorway", 2, 21000, 40000),
+            _seg(6, "residential", 9, 40000, 41000)]
+    refs = {1: ["I 280"], 2: ["US 101"], 3: ["I 280"]}
+    eligible = {"motorway", "trunk", "primary"}
+    cached = router.expand(router.compact(segs, eligible))
+    assert len(cached) < len(segs)
+    for hub in (0, 2000, 8000, 15000, 25000, 39000, 45000):
+        a = classify_corridor(segs, hub, "distance", eligible, refs, {})
+        b = classify_corridor(cached, hub, "distance", eligible, refs, {})
+        assert (a.status, a.family_key, a.next_refs, a.directed_ways) == (b.status, b.family_key, b.next_refs,
+                                                                           b.directed_ways), hub
+
+
+def test_cached_measure_relabels_without_routing_and_knows_when_it_cannot(fake):
+    sent = fake(0.0001, 20.0)
+    raw = router.measure(PROBE)
+    n = len(sent)
+    small_hub = {**CFG["coverage_m"], "hub": 1 * MI}
+    router._W["cfg"] = {**CFG, "coverage_m": small_hub}
+    assert router.reusable(raw, small_hub)
+    assert router.decide(PROBE, raw)["band"] == 2 and len(sent) == n  # 20 mi with hub 1, step 10: relabelled, no calls
+    router._W["cfg"] = CFG
+    untraced = {k: v for k, v in raw.items() if k not in ("trace_reasons", "segs")}  # as if past an old 10-mile limit
+    assert not router.reusable(untraced, CFG["coverage_m"])  # a 50-mile run must route it again

@@ -49,6 +49,26 @@ def run_id(cfg: dict, snapshot: dict) -> str:
     return f"{cfg['label']}-{h[:10]}"
 
 
+def route_cache_path(cfg: dict, snapshot: dict) -> Path:
+    """Cell measurements depend on the base, snap and routing rules, never on Hub/band/limit sizes."""
+    pinned = [cfg["base"], cfg["snap"], cfg["routing"], cfg["grid"]["resolution"], cfg["backbone_classes"],
+              snapshot, FAMILY_KEY_VERSION, code_version()]
+    return Path("data/route_cache") / (hashlib.sha256(json.dumps(pinned, sort_keys=True).encode()).hexdigest()[:16]
+                                       + ".jsonl")
+
+
+def _read_jsonl(path: Path) -> dict:
+    recs = {}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # a line cut off by a crash: that probe is simply routed again
+            recs[rec["id"]] = rec
+    return recs
+
+
 def load_boundary(path: str | None):
     """Geofabrik .poly extract boundary -> prepared polygon (None if not configured). Holes ('!') are skipped."""
     if not path:
@@ -114,14 +134,19 @@ def run(cfg_path: Path, fresh: bool = False, max_probes: int | None = None) -> P
     if max_probes:
         probes = probes[:max_probes] + [p for p in probes if p["kind"] == "hard_case"][: max_probes // 10]
 
-    done = {}
-    if ledger.exists():
-        for line in ledger.read_text().splitlines():
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # a line cut off by a crash: that probe is simply routed again
-            done[rec["id"]] = rec
+    done = _read_jsonl(ledger)
+    cache_path = route_cache_path(cfg, snapshot)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    cache = _read_jsonl(cache_path)
+    reused = 0
+    with ledger.open("a") as f:
+        for p in probes:
+            raw = cache.get(p["id"])
+            if p["kind"] == "cell" and p["id"] not in done and raw and router.reusable(raw, cfg["coverage_m"]):
+                rec = {**router.decide(p, raw), "calls": 0}  # already routed for this base: labelling only
+                done[p["id"]] = rec
+                f.write(json.dumps(rec) + "\n")
+                reused += 1
     spent = {"calls": sum(r.get("calls", 0) for r in done.values()), "inflight": 0}
     # no graph data there: distinct from "no road", never routed (spec §6.1); not written to the ledger
     for p in probes:
@@ -140,13 +165,16 @@ def run(cfg_path: Path, fresh: bool = False, max_probes: int | None = None) -> P
             yield p
 
     t0 = time.time()
-    with Pool(cfg["workers"], initializer=router.init_worker, initargs=(cfg,)) as pool, ledger.open("a") as f:
-        for i, rec in enumerate(pool.imap_unordered(router.evaluate, todo(), chunksize=16), 1):
+    with (Pool(cfg["workers"], initializer=router.init_worker, initargs=(cfg,)) as pool, ledger.open("a") as f,
+          cache_path.open("a") as cf):
+        for i, (raw, rec) in enumerate(pool.imap_unordered(router.measure_and_decide, todo(), chunksize=16), 1):
             with lock:
                 spent["inflight"] -= 1
                 spent["calls"] += rec["calls"]
             done[rec["id"]] = rec
             f.write(json.dumps(rec) + "\n")
+            if rec["kind"] == "cell":
+                cf.write(json.dumps({"id": rec["id"], **raw}) + "\n")
             if i % 1000 == 0:
                 print(f"{len(done)}/{len(probes)} probes, {spent['calls']} calls, {time.time() - t0:.0f}s", flush=True)
 
@@ -154,6 +182,7 @@ def run(cfg_path: Path, fresh: bool = False, max_probes: int | None = None) -> P
             "valhalla": "pyvalhalla " + __import__("valhalla").__version__, "base_snap": base_snap,
             "coverage": cfg["coverage"], "time_view": cfg["time_view"], "code_version": code_version(),
             "candidate_cells": len(cells), "probes_total": len(probes), "calls": spent["calls"],
+            "reused_from_route_cache": reused, "route_cache": str(cache_path),
             "elapsed_s_this_session": round(time.time() - t0, 1), "refs_counts": refs["counts"]}
     cells_out, hard_out = postprocess(cfg, [p for p in probes if p["kind"] == "cell"], done, hard)
     meta["forks"] = fork_candidates(cells_out)
