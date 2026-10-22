@@ -180,6 +180,8 @@ def map_layers(cells: list[dict]) -> list:
         uncertain = c.get("hatch_status") == "hatched"
         if c["status"] in ("outside_coverage", "unreachable"):
             rgb = PALE
+        elif noroad:
+            rgb = GREY  # ocean / roadless land: a corridor colour there reads as a coverage claim (decision 20)
         elif by_corridor:
             rgb = ccol.get(c.get("display_corridor_id"), GREY)
             if mode == ZONES and c.get("display_corridor_id") not in ("HUB", None):
