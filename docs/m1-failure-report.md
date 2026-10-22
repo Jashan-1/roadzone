@@ -54,6 +54,8 @@ Reproduce: see the README.
 | Outside coverage | 4,952 | Confirmed more than 50 road miles |
 | Unknown | 15,994 | No road within 500 m (mostly ocean and bay), track-only land (3,774), or a road just outside the cell (96) |
 
+> **Correction (found after this run):** 9 of the unknown cells (`route_failed:[-1]`) were really **unreachable**: the router reported "no path" as plain text, which the adapter didn't recognise. Fixed in commit `6a05ea8`; later runs classify these as unreachable. Zoned, outside and headline numbers are unaffected.
+
 Snap evidence:
 - **4,925 cells** were accepted because their road point lies inside the cell, even though it's 100–500 m from the centre (`snap_in_cell`).
 - **1,307 cells** whose nearest road was a track were resolved to a real road (`snapped_past_track`).
