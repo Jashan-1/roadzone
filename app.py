@@ -3,6 +3,7 @@ import colorsys
 import html
 import json
 import math
+import re
 import subprocess
 import sys
 import time
@@ -125,6 +126,38 @@ def band_labels(limit: float, hub: float, step: float, unit: str) -> list[str]:
     return [f"{a:g}–{b:g} {unit}" + (" (Hub)" if i == 0 else "") for i, (a, b) in enumerate(zip(edges, edges[1:]))]
 
 
+def _zone_key(code: str) -> tuple:
+    m = re.match(r"(\d+)(.*)", code)
+    return (int(m.group(1)), m.group(2)) if m else (999, code)
+
+
+def _solid_zones(cells: list[dict]) -> dict[str, list[str]]:
+    """zone code -> its confidently zoned cells (faint / unknown cells never count as zone area)."""
+    zones = defaultdict(list)
+    for c in cells:
+        if c.get("zone_code") and c.get("hatch_status") != "hatched" and c["status"] == "centroid_sampled":
+            zones[c["zone_code"]].append(c["h3"])
+    return zones
+
+
+@st.cache_data
+def zone_codes(run: str) -> list[str]:
+    return sorted(_solid_zones(load(run)[1]), key=_zone_key)
+
+
+@st.cache_data
+def zone_shapes(run: str) -> tuple[dict, list[dict]]:
+    """Merged outline per zone (GeoJSON) and one label point per zone, on its member cell nearest the zone's middle."""
+    feats, labels = [], []
+    for code, members in _solid_zones(load(run)[1]).items():
+        feats.append({"type": "Feature", "properties": {"zone": code}, "geometry": h3.cells_to_geo(members)})
+        pts = [h3.cell_to_latlng(m) for m in members]
+        mid = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+        lat, lon = min(pts, key=lambda p: (p[0] - mid[0]) ** 2 + (p[1] - mid[1]) ** 2)
+        labels.append({"pos": [lon, lat], "zone": code, "cells": len(members)})
+    return {"type": "FeatureCollection", "features": feats}, labels
+
+
 run = st.sidebar.selectbox("Show run", runs, index=runs.index(default) if default in runs else len(runs) - 1,
                            format_func=run_label)
 compare = st.sidebar.multiselect("Compare with branches", [r for r in runs if r != run], format_func=run_label,
@@ -133,6 +166,13 @@ ZONES, CORRIDORS = "Zones (band + corridor)", "Corridors (highway)"
 mode = st.sidebar.radio("Colour by", [ZONES, CORRIDORS, "Road-mile bands", "Free-flow minute bands"],
                         help="A zone is a band plus a corridor: 1A and 2A are on the same highway, one band apart. Zones shade each highway darker per band.")
 by_corridor = mode in (ZONES, CORRIDORS)
+opacity = st.sidebar.slider("Zone opacity", 10, 100, 70, 5, format="%d%%",
+                            help="Lower it to see the streets and place names under the zones.") / 100
+focus = None
+if mode == ZONES:
+    focus = st.sidebar.selectbox("Highlight a zone", ["All zones", *zone_codes(run)],
+                                 help="Dims every other zone so one zone's shape is easy to see.")
+    focus = None if focus == "All zones" else focus
 show_out = st.sidebar.checkbox("Show outside / unreachable cells", value=False)
 show_unknown = st.sidebar.checkbox("Show unknown cells (near a road)", value=True)
 show_noroad = st.sidebar.checkbox("Show no-road / track-only / no-map-data cells", value=False)
@@ -157,7 +197,7 @@ def corridor_colours(cells: list[dict]) -> tuple[list[str], dict]:
                        for i, cid in enumerate(corridors)}
 
 
-def map_layers(cells: list[dict]) -> list:
+def map_layers(cells: list[dict], run: str) -> list:
     """Cell fill, isolated-patch outlines and address pins for one run, using the sidebar's colour and filters."""
     _, ccol = corridor_colours(cells)
     # isolated patch: a zoned cell whose zoned neighbours are mostly another corridor (display flag only)
@@ -191,9 +231,27 @@ def map_layers(cells: list[dict]) -> list:
             rgb = BANDS[b % len(BANDS)] if b is not None else GREY
         # pydeck can't hatch: uncertain cells are drawn faint instead
         row = {k: ("" if c.get(k) is None else c[k]) for k in TIP_FIELDS}  # only what the map needs: big runs stay fast
-        row["fill"] = [*rgb, 50 if uncertain else 180]
-        row["patch"] = "isolated patch" if by_corridor and c["h3"] in solid and isolated(c["h3"]) else ""
+        dim = focus and c.get("zone_code") != focus
+        row["fill"] = [*rgb, int((28 if dim else 70 if uncertain else 255) * opacity)]
+        row["patch"] = "isolated patch" if by_corridor and not dim and c["h3"] in solid and isolated(c["h3"]) else ""
         rows.append(row)
+    zone_layers = []
+    if mode == ZONES:
+        outlines, labels = zone_shapes(run)
+        if focus:
+            outlines = {**outlines, "features": [f for f in outlines["features"] if f["properties"]["zone"] == focus]}
+            labels = [lb for lb in labels if lb["zone"] == focus]
+        else:
+            labels = [lb for lb in labels if lb["cells"] >= MIN_LEGEND_CELLS]  # tiny zones: tooltip only, no clutter
+        zone_layers = [
+            # soft light-grey zone edges, so the bold black isolated-patch rings stand out against them
+            pdk.Layer("GeoJsonLayer", outlines, stroked=True, filled=False,
+                      get_line_color=[40, 40, 40, 220] if focus else [190, 190, 195, 200],
+                      line_width_min_pixels=3 if focus else 1),
+            pdk.Layer("TextLayer", labels, get_position="pos", get_text="zone", get_size=15 if focus else 12,
+                      get_color=[20, 20, 20], background=True, get_background_color=[255, 255, 255, 210],
+                      font_weight=700, billboard=True),
+        ]
     pins = [{**{k: "" for k in TIP_FIELDS}, "pos": [a["lon"], a["lat"]], "zone_code": "📍", "status": a["label"][:60],
              "patch": ""} for a in st.session_state["addresses"]]
     return [
@@ -201,19 +259,20 @@ def map_layers(cells: list[dict]) -> list:
                   extruded=False, pickable=True, auto_highlight=True),
         # outlines in their own layer, only for isolated patches: stroking every cell leaves seams across the map
         pdk.Layer("H3HexagonLayer", [r for r in rows if r["patch"]], get_hexagon="h3", filled=False,
-                  stroked=True, get_line_color=[20, 20, 20, 230], line_width_min_pixels=1.5, extruded=False),
+                  stroked=True, get_line_color=[0, 0, 0, 255], line_width_min_pixels=3, extruded=False),
+        *zone_layers,
         pdk.Layer("ScatterplotLayer", pins, get_position="pos", get_fill_color=[220, 20, 60], get_line_color=[255, 255, 255],
                   stroked=True, line_width_min_pixels=2, radius_min_pixels=7, pickable=True),
     ]
 
 
-def deck(cells: list[dict], base: list[float], zoom: float = 8.5) -> pdk.Deck:
+def deck(cells: list[dict], base: list[float], run: str, zoom: float = 8.5) -> pdk.Deck:
     base_layer = pdk.Layer("ScatterplotLayer", [{"pos": base}], get_position="pos", get_radius=400,
                            get_fill_color=[0, 0, 0], pickable=False)
     # plain-text tooltip: corridor names come from editable OSM tags and must not be rendered as HTML
     tooltip = {"text": "{zone_code} {status} {patch}\n{m_dist_mi} mi · {m_time_min} free-flow min\n"
                        "corridor: {family_key} ({direction_method})\nsnap: {snap_dist_m} m\nreasons: {reason_codes}"}
-    return pdk.Deck(layers=[*map_layers(cells), base_layer], tooltip=tooltip, map_style="light",
+    return pdk.Deck(layers=[*map_layers(cells, run), base_layer], tooltip=tooltip, map_style="light",
                     initial_view_state=pdk.ViewState(latitude=base[1], longitude=base[0], zoom=zoom))
 
 
@@ -228,7 +287,7 @@ with tab_map:
         st.session_state["view_nonce"] += 1
     # Streamlit keeps a panned view across reruns; a new container key per click remounts the map at the base
     with st.container(key=f"map{st.session_state['view_nonce']}"):
-        st.pydeck_chart(deck(cells, base), height=650)
+        st.pydeck_chart(deck(cells, base, run), height=650)
     corridors, ccol = corridor_colours(cells)
     left, right = st.columns(2)
     with left:
@@ -337,7 +396,7 @@ with tab_cmp:
     for col, b in zip(cols, branches):
         with col:
             st.caption(run_label(b))
-            st.pydeck_chart(deck(load(b)[1], load(b)[2], zoom=7.8), height=420)
+            st.pydeck_chart(deck(load(b)[1], load(b)[2], b, zoom=7.8), height=420)
 
 with tab_report:
     st.markdown((Path("runs") / run / "failure_report.md").read_text())

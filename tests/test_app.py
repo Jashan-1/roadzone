@@ -85,3 +85,11 @@ def test_unparseable_line_reports_an_error(app, monkeypatch):
     at.text_area[0].set_value("nowhere at all").run()
     _button(at, "Check").click().run()
     assert any("Couldn't find" in e.value for e in at.error) and at.session_state["addresses"] == []
+
+
+def test_zone_highlight_lists_zones_in_order_and_renders(app):
+    at = app.run()
+    pick = next(s for s in at.sidebar.selectbox if s.label == "Highlight a zone")
+    assert pick.options == ["All zones", "0", "1A"]
+    pick.set_value("1A").run()
+    assert not at.exception
