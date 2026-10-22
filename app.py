@@ -12,7 +12,7 @@ import h3
 import pydeck as pdk
 import streamlit as st
 import yaml
-from collections import Counter
+from collections import Counter, defaultdict
 
 from zonegen import lookup
 from zonegen.classify import band_edges
@@ -129,7 +129,10 @@ run = st.sidebar.selectbox("Show run", runs, index=runs.index(default) if defaul
                            format_func=run_label)
 compare = st.sidebar.multiselect("Compare with branches", [r for r in runs if r != run], format_func=run_label,
                                  max_selections=2, help="Other dealership locations (runs) shown side by side")
-mode = st.sidebar.radio("Colour by", ["Zones", "Road-mile bands", "Free-flow minute bands"])
+ZONES, CORRIDORS = "Zones (band + corridor)", "Corridors (highway)"
+mode = st.sidebar.radio("Colour by", [ZONES, CORRIDORS, "Road-mile bands", "Free-flow minute bands"],
+                        help="A zone is a band plus a corridor: 1A and 2A are on the same highway, one band apart. Zones shade each highway darker per band.")
+by_corridor = mode in (ZONES, CORRIDORS)
 show_out = st.sidebar.checkbox("Show outside / unreachable cells", value=False)
 show_unknown = st.sidebar.checkbox("Show unknown cells (near a road)", value=True)
 show_noroad = st.sidebar.checkbox("Show no-road / track-only / no-map-data cells", value=False)
@@ -140,6 +143,12 @@ st.session_state.setdefault("view_nonce", 0)
 st.title("RoadZone cell map")
 st.warning(meta.get("notice", "") + ("" if meta.get("base_confirmed") else
                                      " Base point is a placeholder, not the dealer's van entrance."))
+
+
+def shade(rgb: tuple[int, int, int], band: int | None) -> tuple[int, int, int]:
+    """Same hue, darker for each band further out (band 1 unchanged): 1A, 2A, 3A read as one highway."""
+    f = max(0.4, 1 - 0.2 * ((band or 1) - 1))
+    return tuple(int(x * f) for x in rgb)
 
 
 def corridor_colours(cells: list[dict]) -> tuple[list[str], dict]:
@@ -171,15 +180,17 @@ def map_layers(cells: list[dict]) -> list:
         uncertain = c.get("hatch_status") == "hatched"
         if c["status"] in ("outside_coverage", "unreachable"):
             rgb = PALE
-        elif mode == "Zones":
+        elif by_corridor:
             rgb = ccol.get(c.get("display_corridor_id"), GREY)
+            if mode == ZONES and c.get("display_corridor_id") not in ("HUB", None):
+                rgb = shade(rgb, c.get("band"))
         else:
             b = c.get("band") if mode == "Road-mile bands" else c.get("band_time")
             rgb = BANDS[b % len(BANDS)] if b is not None else GREY
         # pydeck can't hatch: uncertain cells are drawn faint instead
         row = {k: ("" if c.get(k) is None else c[k]) for k in TIP_FIELDS}  # only what the map needs: big runs stay fast
         row["fill"] = [*rgb, 50 if uncertain else 180]
-        row["patch"] = "isolated patch" if mode == "Zones" and c["h3"] in solid and isolated(c["h3"]) else ""
+        row["patch"] = "isolated patch" if by_corridor and c["h3"] in solid and isolated(c["h3"]) else ""
         rows.append(row)
     pins = [{**{k: "" for k in TIP_FIELDS}, "pos": [a["lon"], a["lat"]], "zone_code": "📍", "status": a["label"][:60],
              "patch": ""} for a in st.session_state["addresses"]]
@@ -220,18 +231,26 @@ with tab_map:
     left, right = st.columns(2)
     with left:
         st.subheader("Legend")
-        if mode == "Zones":
-            fams = {}
+        if by_corridor:
+            fams, bands = {}, defaultdict(set)
             for c in cells:
                 if c.get("display_corridor_id") and c.get("family_key") and c.get("hatch_status") != "hatched":
                     fams.setdefault(c["display_corridor_id"], c["family_key"])
+                if c.get("zone_code") and c.get("band"):
+                    bands[c["display_corridor_id"]].add(c["band"])
             size = Counter(c.get("display_corridor_id") for c in cells if c.get("hatch_status") != "hatched")
             small = [cid for cid in corridors if cid not in ("HUB", "L") and size[cid] < MIN_LEGEND_CELLS]
             for cid in corridors:
                 if cid in small:
                     continue  # display only: tiny corridors keep their letter on the map and in the tooltip
                 label = "Hub (zone 0)" if cid == "HUB" else "Local roads" if cid == "L" else f"{cid}: {fams.get(cid, '')}"
-                st.markdown(f"<span style='color:rgb{ccol[cid]}'>■</span> {html.escape(label)}", unsafe_allow_html=True)
+                if mode == ZONES and cid != "HUB":
+                    sw = " ".join(f"<span style='color:rgb{shade(ccol[cid], b)}'>■</span>{b}{cid}"
+                                  for b in sorted(bands[cid]))
+                    st.markdown(f"{sw} · {html.escape(label)}", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<span style='color:rgb{ccol[cid]}'>■</span> {html.escape(label)}",
+                                unsafe_allow_html=True)
             if small:
                 st.caption(f"+ {len(small)} small corridors (under {MIN_LEGEND_CELLS} cells each): "
                            + ", ".join(f"{cid} ({fams.get(cid, '?')})" for cid in small))
@@ -246,7 +265,7 @@ with tab_map:
                             unsafe_allow_html=True)
         st.caption("Faint cells = unknown / mixed / needs review (display colour only, not an assignment). "
                    "Red pins = checked addresses.")
-        if mode == "Zones":
+        if by_corridor:
             st.caption("Outlined cells = isolated patch: reached by a different corridor than most of their neighbours. "
                        "A real result shown as an exception, not merged away.")
     with right:

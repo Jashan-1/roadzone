@@ -151,3 +151,11 @@ def test_cached_measure_relabels_without_routing_and_knows_when_it_cannot(fake):
     router._W["cfg"] = CFG
     untraced = {k: v for k, v in raw.items() if k not in ("trace_reasons", "segs")}  # as if past an old 10-mile limit
     assert not router.reusable(untraced, CFG["coverage_m"])  # a 50-mile run must route it again
+
+
+def test_plain_text_no_path_error_counts_as_no_path(monkeypatch):
+    class Actor:
+        def route(self, req):
+            raise router.valhalla.ValhallaError("No path could be found for input")
+    monkeypatch.setitem(router._W, "actor", Actor())
+    assert router._call("route", {}) == (None, 442)

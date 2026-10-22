@@ -28,7 +28,8 @@ def _call(action: str, req: dict) -> tuple[dict | None, int | None]:
         try:
             return None, json.loads(str(e)).get("error_code")
         except (ValueError, AttributeError):
-            return None, -1
+            # pyvalhalla raises some errors as bare text; this one is a real "no road connection" (e.g. islands)
+            return None, 442 if "No path could be found" in str(e) else -1
 
 
 def decode_polyline6(s: str) -> list[tuple[float, float]]:
