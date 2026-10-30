@@ -23,10 +23,19 @@ def corridor_colour(i: int) -> tuple[int, int, int]:
     """i-th of an unlimited set of distinct colours: golden-angle hue steps, alternating lightness."""
     r, g, b = colorsys.hls_to_rgb((i * 0.618034) % 1, 0.42 if i % 2 else 0.58, 0.7)
     return round(r * 255), round(g * 255), round(b * 255)
-# distinct hues (not shades of one colour) so neighbouring bands are easy to tell apart; Hub is dark slate
-BANDS = [(55, 65, 81), (230, 57, 70), (247, 140, 38), (240, 200, 30), (60, 170, 80), (0, 160, 170),
-         (70, 110, 220), (150, 80, 200), (230, 100, 180), (140, 100, 60), (130, 140, 40), (120, 120, 120)]
+
+
+def band_colour(band: int, last: int) -> tuple[int, int, int]:
+    """Green at the first band to red at the last; the Hub stays dark slate."""
+    if band == 0:
+        return 55, 65, 81
+    r, g, b = colorsys.hsv_to_rgb(max(0, last - band) / max(1, last - 1) / 3, 0.75, 0.85)
+    return round(r * 255), round(g * 255), round(b * 255)
+
+
 GREY, PALE = (160, 160, 165), (235, 235, 238)
+HIGHWAYS = {"Interstates only": ["I"], "Interstates + US routes": ["I", "US"],
+            "Interstates + US + state routes": ["I", "US", "CA"]}
 MIN_LEGEND_CELLS = 10  # legend lists corridors at least this big; the map still shows every one
 TIP_FIELDS = ("h3", "zone_code", "status", "m_dist_mi", "m_time_min", "family_key", "direction_method",
               "snap_dist_m", "reason_codes")
@@ -56,8 +65,15 @@ with st.sidebar.form("new_run"):
     limit = st.number_input("Max coverage (road miles)", 5.0, 80.0, 50.0, 5.0)
     hub = st.number_input("Hub size (road miles)", 1.0, 40.0, 5.0, 1.0)
     step = st.number_input("Band size (road miles)", 1.0, 50.0, 10.0, 1.0)
+    highways = st.radio("Build corridors from", list(HIGHWAYS), index=None,
+                        help="Only these highways can name a corridor. Everywhere else joins the closest match on its "
+                             "route, or local roads (L).")
+    min_cells = st.slider("Merge corridors smaller than (cells)", 0, 200, 30, 10,
+                          help="Folds tiny corridors into the neighbour they touch most. 0 keeps every corridor.")
     go = st.form_submit_button("Generate zones")
-if go and not (Path("data/valhalla_tiles").exists() and
+if go and highways is None:
+    st.sidebar.error("Choose which highways to build corridors from.")
+elif go and not (Path("data/valhalla_tiles").exists() and
                Path(load_config(Path("configs/stevens_creek.yaml"))["data"]["pbf"]).exists()):
     st.sidebar.error("Map data is still downloading or building. Try again when it finishes.")
 elif go:
@@ -73,11 +89,13 @@ elif go:
         cfg.update(label="custom", hard_cases=None)
         cfg["base"] = {"lat": lat, "lon": lon, "confirmed": False}
         cfg["coverage"].update(limit_miles=limit, hub_miles=hub, band_step_miles=step)
+        cfg.update(highway_types=HIGHWAYS[highways], min_corridor_cells=min_cells)
         # road miles >= crow-flies miles, so this extent provably contains every covered cell
         cfg["grid"]["extent_radius_km"] = round(limit * 1.609344 + 2, 1)
         # budget scales with area: ~0.737 km² per res-8 cell
         cfg["request_budget"] = int(MAX_CALLS_PER_PROBE * math.pi * cfg["grid"]["extent_radius_km"] ** 2 / 0.737 * 1.1)
-        path = Path("configs/custom") / f"{lat:.5f}_{lon:.5f}_{limit:g}_{hub:g}_{step:g}.yaml"
+        path = Path("configs/custom") / (f"{lat:.5f}_{lon:.5f}_{limit:g}_{hub:g}_{step:g}_"
+                                         f"{'-'.join(HIGHWAYS[highways])}_{min_cells}.yaml")
         path.parent.mkdir(exist_ok=True)
         path.write_text(yaml.safe_dump(cfg, sort_keys=False))
         with st.spinner(f"Routing every cell out and back (~{limit / 50 * limit / 50 * 2.5:.0f} min)…"):
@@ -117,13 +135,24 @@ def run_label(rid: str) -> str:
     if not cfg:
         return name
     c = cfg["coverage"]
-    return f"{name} · {c['limit_miles']:g} mi, hub {c['hub_miles']:g}, bands {c['band_step_miles']:g}"
+    types = "+".join(cfg.get("highway_types") or [])
+    return f"{name} · {c['limit_miles']:g} mi, hub {c['hub_miles']:g}, bands {c['band_step_miles']:g}" + \
+        (f", {types}" if types else "")
 
 
 def band_labels(limit: float, hub: float, step: float, unit: str) -> list[str]:
     """Legend text from the same band edges the classifier uses."""
     edges = [0, *band_edges(hub, step, limit), limit]
     return [f"{a:g}–{b:g} {unit}" + (" (Hub)" if i == 0 else "") for i, (a, b) in enumerate(zip(edges, edges[1:]))]
+
+
+def mode_bands(rid: str) -> list[str]:
+    """Legend labels for the band view picked in the sidebar: index is the band number."""
+    cfg = run_cfg(rid) or {"coverage": {"limit_miles": 50, "hub_miles": 5, "band_step_miles": 10},
+                           "time_view": {"limit_minutes": 60, "hub_minutes": 15, "band_step_minutes": 15}}
+    c, t = cfg["coverage"], cfg["time_view"]
+    return (band_labels(c["limit_miles"], c["hub_miles"], c["band_step_miles"], "mi") if mode == "Road-mile bands"
+            else band_labels(t["limit_minutes"], t["hub_minutes"], t["band_step_minutes"], "min"))
 
 
 def _zone_key(code: str) -> tuple:
@@ -164,7 +193,8 @@ compare = st.sidebar.multiselect("Compare with branches", [r for r in runs if r 
                                  max_selections=2, help="Other dealership locations (runs) shown side by side")
 ZONES, CORRIDORS = "Zones (band + corridor)", "Corridors (highway)"
 mode = st.sidebar.radio("Colour by", [ZONES, CORRIDORS, "Road-mile bands", "Free-flow minute bands"],
-                        help="A zone is a band plus a corridor: 1A and 2A are on the same highway, one band apart. Zones shade each highway darker per band.")
+                        help="A zone is a band plus a corridor: 1A and 2A are on the same highway, one band apart. "
+                             "2AB is a branch reached through corridor A. Zones shade each highway darker per band.")
 by_corridor = mode in (ZONES, CORRIDORS)
 opacity = st.sidebar.slider("Zone opacity", 10, 100, 70, 5, format="%d%%",
                             help="Lower it to see the streets and place names under the zones.") / 100
@@ -183,6 +213,9 @@ st.session_state.setdefault("view_nonce", 0)
 st.title("RoadZone cell map")
 st.warning(meta.get("notice", "") + ("" if meta.get("base_confirmed") else
                                      " Base point is a placeholder, not the dealer's van entrance."))
+if not (run_cfg(run) or {}).get("highway_types"):
+    st.info("Older run, built before the highway choice: its corridors and letters will differ from a new run. "
+            "Generate it again before planning calendars around these zones.")
 
 
 def shade(rgb: tuple[int, int, int], band: int | None) -> tuple[int, int, int]:
@@ -210,6 +243,7 @@ def map_layers(cells: list[dict], run: str) -> list:
         nb = [solid[n] for n in h3.grid_ring(cid, 1) if n in solid and solid[n] not in ("HUB", "L")]
         return len(nb) >= 3 and sum(x != solid[cid] for x in nb) / len(nb) > 0.5
 
+    last_band = None if by_corridor else len(mode_bands(run)) - 1
     rows = []
     for c in cells:
         if c["status"] in ("outside_coverage", "unreachable") and not show_out:
@@ -228,7 +262,7 @@ def map_layers(cells: list[dict], run: str) -> list:
                 rgb = shade(rgb, c.get("band"))
         else:
             b = c.get("band") if mode == "Road-mile bands" else c.get("band_time")
-            rgb = BANDS[b % len(BANDS)] if b is not None else GREY
+            rgb = band_colour(b, last_band) if b is not None else GREY
         # pydeck can't hatch: uncertain cells are drawn faint instead
         row = {k: ("" if c.get(k) is None else c[k]) for k in TIP_FIELDS}  # only what the map needs: big runs stay fast
         dim = focus and c.get("zone_code") != focus
@@ -296,7 +330,7 @@ with tab_map:
             fams, bands = {}, defaultdict(set)
             for c in cells:
                 if c.get("display_corridor_id") and c.get("family_key") and c.get("hatch_status") != "hatched":
-                    fams.setdefault(c["display_corridor_id"], c["family_key"])
+                    fams.setdefault(c["display_corridor_id"], c.get("merged_into") or c["family_key"])
                 if c.get("zone_code") and c.get("band"):
                     bands[c["display_corridor_id"]].add(c["band"])
             size = Counter(c.get("display_corridor_id") for c in cells if c.get("hatch_status") != "hatched")
@@ -316,13 +350,9 @@ with tab_map:
                 st.caption(f"+ {len(small)} small corridors (under {MIN_LEGEND_CELLS} cells each): "
                            + ", ".join(f"{cid} ({fams.get(cid, '?')})" for cid in small))
         else:
-            cfg = run_cfg(run) or {"coverage": {"limit_miles": 50, "hub_miles": 5, "band_step_miles": 10},
-                                   "time_view": {"limit_minutes": 60, "hub_minutes": 15, "band_step_minutes": 15}}
-            c, t = cfg["coverage"], cfg["time_view"]
-            labels = (band_labels(c["limit_miles"], c["hub_miles"], c["band_step_miles"], "mi") if mode == "Road-mile bands"
-                      else band_labels(t["limit_minutes"], t["hub_minutes"], t["band_step_minutes"], "min"))
+            labels = mode_bands(run)
             for i, lab in enumerate(labels):
-                st.markdown(f"<span style='color:rgb{BANDS[i % len(BANDS)]}'>■</span> Band {i}: {lab}",
+                st.markdown(f"<span style='color:rgb{band_colour(i, len(labels) - 1)}'>■</span> Band {i}: {lab}",
                             unsafe_allow_html=True)
         st.caption("Faint cells = unknown / mixed / needs review (display colour only, not an assignment). "
                    "Red pins = checked addresses.")

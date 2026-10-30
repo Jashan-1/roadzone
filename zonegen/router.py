@@ -233,7 +233,8 @@ def decide(probe: dict, raw: dict) -> dict:
         if segs:
             refs = _W["refs"]
             corridor = classify_corridor(segs, cov["hub"], cov["metric"], set(cfg["backbone_classes"]),
-                                         refs["way_refs"], refs["way_roles"])
+                                         refs["way_refs"], refs["way_roles"],
+                                         set(cfg["highway_types"]) if cfg.get("highway_types") else None)
             out_hub = out["m"] if cov["metric"] == "distance" else out["s"]
             if corridor.status == "local" and out_hub < cov["hub"]:
                 rec["reasons"].append("asymmetric_hub_access")
@@ -242,7 +243,8 @@ def decide(probe: dict, raw: dict) -> dict:
         "status": corridor.status, "family_key": list(corridor.family_key) if corridor.family_key else None,
         "refs": list(corridor.refs), "direction": corridor.direction, "direction_method": corridor.direction_method,
         "bearing": corridor.bearing, "dwell_s": corridor.dwell_s, "tied": corridor.tied,
-        "directed_ways": [list(d) for d in corridor.directed_ways], "next_refs": list(corridor.next_refs)}
+        "directed_ways": [list(d) for d in corridor.directed_ways], "next_refs": list(corridor.next_refs),
+        "prev_family": list(corridor.prev_family)}
     if far:
         rec["status"] = "unknown"  # shadow result kept above; never classified, not even as outside
         rec["reasons"].append("snap_far")

@@ -30,3 +30,34 @@ def test_summarize_hub_local_review_and_outside():
     assert out["zone"] is None and not out["review"]
     track = summarize(_rec(band=0, review_required=True), {})
     assert track["zone"] == "0" and track["review"]  # track-access home keeps its zone but needs a check
+
+
+def _served_run(root, rid="run-1"):
+    import json
+    d = root / "runs" / rid
+    d.mkdir(parents=True)
+    feats = [{"id": "c1", "properties": {"family_key": "CA 92 | E", "zone_code": "3AF", "corridor_status": "supported"}},
+             {"id": "base", "properties": {}}]
+    (d / "cells.geojson").write_text(json.dumps({"features": feats}))
+    (d / "run_meta.json").write_text(json.dumps({"config": "configs/x.yaml"}))
+    return rid
+
+
+def test_zone_endpoint_answers_and_rejects_bad_input(tmp_path, monkeypatch):
+    from zonegen import lookup, serve
+    monkeypatch.chdir(tmp_path)
+    rid = _served_run(tmp_path)
+    seen = {}
+    def classify(cfg, lat, lon, letters):
+        seen.update(cfg=cfg, letters=letters)
+        return {"zone": "3AF"}
+    monkeypatch.setattr(lookup, "classify", classify)
+    code, body = serve.zone_for(rid, "37.32, -121.97")
+    assert code == 200 and body["zone"] == "3AF" and body["lat"] == 37.32
+    assert seen == {"cfg": "configs/x.yaml", "letters": {"CA 92 | E": "AF"}}  # merged corridor keeps resolving
+    assert serve.zone_for("../../etc", "37.32, -121.97")[0] == 404
+    assert serve.zone_for("nope", "37.32, -121.97")[0] == 404
+    assert serve.zone_for(rid, "   ")[0] == 400
+    assert serve.zone_for(rid, "x" * 301)[0] == 400
+    monkeypatch.setattr(lookup, "resolve", lambda q: None)
+    assert serve.zone_for(rid, "nowhere")[0] == 422

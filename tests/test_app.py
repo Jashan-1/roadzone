@@ -93,3 +93,22 @@ def test_zone_highlight_lists_zones_in_order_and_renders(app):
     assert pick.options == ["All zones", "0", "1A"]
     pick.set_value("1A").run()
     assert not at.exception
+
+
+def test_new_run_needs_a_highway_choice(app):
+    at = app.run()
+    pick = next(r for r in at.sidebar.radio if r.label == "Build corridors from")
+    assert pick.value is None
+    next(b for b in at.sidebar.button if "Generate" in b.label).click().run()
+    assert not at.exception and any("Choose which highways" in e.value for e in at.sidebar.error)
+
+
+def test_band_colours_run_green_to_red_and_band_view_renders(app):
+    at = app.run()
+    next(r for r in at.sidebar.radio if r.label == "Colour by").set_value("Road-mile bands").run()
+    assert not at.exception
+    legend = [m.value for m in at.markdown if "Band " in m.value]
+    assert "Band 1" in legend[1] and "(55, 65, 81)" in legend[0]
+    r1, g1, _ = eval(legend[1].split("rgb")[1].split("'")[0])
+    r5, g5, _ = eval(legend[5].split("rgb")[1].split("'")[0])
+    assert g1 > r1 and r5 > g5

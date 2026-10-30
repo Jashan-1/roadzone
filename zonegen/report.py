@@ -25,7 +25,7 @@ def _props(r: dict) -> dict:
         "snap_lat": s.get("lat"), "snap_lon": s.get("lon"), "snap_dist_m": s.get("dist_m"), "snap_way_id": s.get("way_id"),
         "corridor_status": c.get("status"), "family_key": " | ".join(c["family_key"]) if c.get("family_key") else None,
         "refs": " ; ".join(c.get("refs") or []) or None, "direction": c.get("direction"),
-        "branch": " ; ".join(c.get("next_refs") or []) or None,
+        "branch": " ; ".join(c.get("next_refs") or []) or None, "merged_into": r.get("merged_into"),
         "direction_method": c.get("direction_method"), "dwell_s": c.get("dwell_s"),
         "tied": json.dumps(c["tied"]) if c.get("tied") else None,
         "candidate_zones": ",".join(r.get("candidate_zones") or []) or None,
@@ -130,6 +130,8 @@ def write_outputs(out, cfg, meta, cells, hard_out, hard):
               ["snap caps", f"decision {cfg['snap']['decision_cap_m']} m, shadow {cfg['snap']['shadow_cap_m']} m"],
               ["search_filter", json.dumps(cfg["snap"]["search_filter"])],
               ["costing", json.dumps(cfg["routing"])], ["backbone classes", ", ".join(cfg["backbone_classes"])],
+              ["highway types", ", ".join(cfg.get("highway_types") or ["all numbered roads"])],
+              ["merge corridors under (cells)", cfg.get("min_corridor_cells", 0)],
               ["ref index", json.dumps(meta["refs_counts"])], ["request budget", cfg["request_budget"]]]),
           "", "## Reproduce", "", "```sh", "./scripts/fetch_data.sh && uv run python -m zonegen build-tiles "
           f"{meta['config']}", f"uv run python -m zonegen run {meta['config']} --fresh", "```",

@@ -1,4 +1,4 @@
-"""uv run python -m zonegen {build-tiles,run} configs/stevens_creek.yaml"""
+"""uv run python -m zonegen {build-tiles,run} configs/stevens_creek.yaml; uv run python -m zonegen serve"""
 import argparse
 import hashlib
 import json
@@ -46,12 +46,18 @@ def build_tiles(cfg_path: Path):
 
 def main():
     ap = argparse.ArgumentParser(prog="zonegen")
-    ap.add_argument("command", choices=["build-tiles", "run"])
-    ap.add_argument("config", type=Path)
+    ap.add_argument("command", choices=["build-tiles", "run", "serve"])
+    ap.add_argument("config", type=Path, nargs="?")
+    ap.add_argument("--port", type=int, default=8600, help="serve: port on localhost")
     ap.add_argument("--fresh", action="store_true", help="discard the probe ledger and start over")
     ap.add_argument("--max-probes", type=int, help="smoke test: evaluate only the nearest N cells")
     a = ap.parse_args()
-    if a.command == "build-tiles":
+    if a.command == "serve":
+        from .serve import serve
+        serve(a.port)
+    elif a.config is None:
+        ap.error("a config file is required")
+    elif a.command == "build-tiles":
         build_tiles(a.config)
     else:
         print(run(a.config, fresh=a.fresh, max_probes=a.max_probes))

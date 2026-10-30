@@ -1,10 +1,11 @@
 """Run orchestration: candidate grid, resumable parallel evaluation, post-run grouping (spec §6.2-§6.8)."""
 import hashlib
+import itertools
 import json
 import math
 import threading
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from multiprocessing import Pool
 from pathlib import Path
 
@@ -15,11 +16,13 @@ from shapely.ops import unary_union
 from shapely.prepared import prep
 
 from . import classify, refs as refs_mod, router
-from .classify import FAMILY_KEY_VERSION, Corridor, bearing_deg, validate_families
+from .classify import FAMILY_KEY_VERSION, Corridor, bearing_deg, haversine_m, validate_families
 from .refs import load_ref_index
 
 MI, MAX_CALLS_PER_PROBE = 1609.344, 5
 FORK_MIN_BRANCH_CELLS = 10  # spec §6.7: at least 10 supported probes per branch before a fork is even recorded
+HIGHWAY_RANK = {"I": 0, "US": 1, "CA": 2}
+RESERVED_CODES = {"CA", "US"}  # a zone like 1CA would read as California or a US route
 
 
 def load_config(path: Path) -> dict:
@@ -55,6 +58,13 @@ def route_cache_path(cfg: dict, snapshot: dict) -> Path:
               snapshot, FAMILY_KEY_VERSION, code_version()]
     return Path("data/route_cache") / (hashlib.sha256(json.dumps(pinned, sort_keys=True).encode()).hexdigest()[:16]
                                        + ".jsonl")
+
+
+def letters_path(cfg: dict) -> Path:
+    """Letters given out so far at this base for this highway choice: a corridor keeps its letter across runs."""
+    # rounded to ~10 m: the same dealer pasted a little differently must not restart its letters
+    pinned = [round(cfg["base"]["lat"], 4), round(cfg["base"]["lon"], 4), cfg.get("highway_types")]
+    return Path("data/letters") / (hashlib.sha256(json.dumps(pinned).encode()).hexdigest()[:16] + ".json")
 
 
 def _read_jsonl(path: Path) -> dict:
@@ -181,29 +191,114 @@ def run(cfg_path: Path, fresh: bool = False, max_probes: int | None = None) -> P
     meta = {"run_id": rid, "config": str(cfg_path), "snapshot": snapshot, "family_key_version": FAMILY_KEY_VERSION,
             "valhalla": "pyvalhalla " + __import__("valhalla").__version__, "base_snap": base_snap,
             "coverage": cfg["coverage"], "time_view": cfg["time_view"], "code_version": code_version(),
+            "highway_types": cfg.get("highway_types"), "min_corridor_cells": cfg.get("min_corridor_cells", 0),
             "candidate_cells": len(cells), "probes_total": len(probes), "calls": spent["calls"],
             "reused_from_route_cache": reused, "route_cache": str(cache_path),
             "elapsed_s_this_session": round(time.time() - t0, 1), "refs_counts": refs["counts"]}
-    cells_out, hard_out = postprocess(cfg, [p for p in probes if p["kind"] == "cell"], done, hard)
+    registry_path = letters_path(cfg)
+    registry = json.loads(registry_path.read_text()) if registry_path.exists() else {}
+    cells_out, hard_out = postprocess(cfg, [p for p in probes if p["kind"] == "cell"], done, hard, registry)
+    if not max_probes:  # a smoke test sees only part of the map and must not hand out letters
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        registry_path.write_text(json.dumps(registry, indent=2, sort_keys=True))
     meta["forks"] = fork_candidates(cells_out)
     from .report import write_outputs
     write_outputs(out, cfg, meta, cells_out, hard_out, hard)
     return out
 
 
-def _family_letters(cfg: dict, recs: list[dict]) -> dict:
-    """Clockwise display letters by circular-mean bearing of member cells from the base. Display only."""
+def merge_small(cells: dict, min_cells: int) -> dict:
+    """Corridors under `min_cells` -> a bigger corridor, smallest first. Display grouping only.
+
+    Road logic first: the corridor most of its cells arrive through, if it touches them or nothing else does.
+    Otherwise the neighbour it touches most, or the nearest corridor if it touches none.
+    """
+    fam = {cid: tuple(r["corridor"]["family_key"]) for cid, r in cells.items()}
+    prev = {cid: tuple(r["corridor"].get("prev_family") or ()) for cid, r in cells.items()}
+    size, merged = Counter(fam.values()), {}
+
+    def target(f: tuple) -> tuple | None:
+        members = [cid for cid, g in fam.items() if g == f]
+        via = Counter(merged.get(prev[c], prev[c]) for c in members)
+        via = {k: n for k, n in via.items() if k in size and k != f}
+        top = min(via, key=lambda k: (-via[k], k), default=None)
+        touch = Counter(fam[n] for cid in members for n in h3.grid_ring(cid, 1) if n in fam and fam[n] != f)
+        if top and via[top] * 2 > len(members) and (top in touch or not touch):  # never split a zone across a gap
+            return top
+        if touch:
+            return min(touch, key=lambda t: (-touch[t], -size[t], t))
+        others = [cid for cid, g in fam.items() if g != f]
+        points = [(cells[c]["lat"], cells[c]["lon"]) for c in members]
+        near = min(others, key=lambda o: (min(haversine_m((cells[o]["lat"], cells[o]["lon"]), p) for p in points), o),
+                   default=None)
+        return fam[near] if near else None
+
+    while small := sorted((f for f, n in size.items() if n < min_cells), key=lambda f: (size[f], f)):
+        f, t = small[0], target(small[0])
+        if t is None:  # the last corridor left has nothing to join
+            return merged
+        fam = {cid: t if g == f else g for cid, g in fam.items()}
+        size[t] += size.pop(f)
+        merged = {k: t if v == f else v for k, v in merged.items()} | {f: t}
+    return merged
+
+
+def _rank(fk: tuple) -> int:
+    return HIGHWAY_RANK.get(fk[0].split()[0], len(HIGHWAY_RANK))
+
+
+def branch_parents(cells: dict, merged: dict) -> dict:
+    """Corridor -> the main corridor it branches off: over half its cells arrive via a bigger corridor.
+
+    A branch can't outrank its parent: an Interstate reached through a US route is still a main corridor.
+    """
+    size, via = Counter(), defaultdict(Counter)
+    for r in cells.values():
+        c = r["corridor"]
+        fk, prev = tuple(c["family_key"]), tuple(c.get("prev_family") or ())
+        fk = merged.get(fk, fk)
+        size[fk] += 1
+        if prev and merged.get(prev, prev) != fk:
+            via[fk][merged.get(prev, prev)] += 1
+    parent = {}
+    for fk, counts in via.items():
+        top, n = min(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        if n * 2 > size[fk] and (size[top], top) > (size[fk], fk) and _rank(top) <= _rank(fk):  # bigger: no cycles
+            parent[fk] = top
+    def root(fk):
+        return root(parent[fk]) if fk in parent else fk
+    return {fk: root(fk) for fk in parent}
+
+
+def _family_letters(cfg: dict, recs: list[dict], merged: dict | None = None, parents: dict | None = None,
+                    registry: dict | None = None) -> dict:
+    """Clockwise display letters by circular-mean bearing of member cells from the base. Display only.
+
+    Main corridors get their own letters; a branch gets its main corridor's letter plus one (2A -> 2AB).
+    Main corridors past Z become A2, B2, so they can't be mistaken for branches.
+    `registry` (family text -> letters) wins, so a corridor seen before keeps its letters.
+    """
+    merged, parents, registry = merged or {}, parents or {}, {} if registry is None else registry
     b = (cfg["base"]["lat"], cfg["base"]["lon"])
     vecs = defaultdict(lambda: [0.0, 0.0])
     for r in recs:
         fk = tuple(r["corridor"]["family_key"])
+        fk = merged.get(fk, fk)
         br = math.radians(bearing_deg(b, (r["lat"], r["lon"])))
         vecs[fk][0] += math.sin(br)
         vecs[fk][1] += math.cos(br)
-    order = sorted(vecs, key=lambda k: (math.degrees(math.atan2(*vecs[k])) % 360, k))
+    order = sorted(vecs, key=lambda k: (k in parents, math.degrees(math.atan2(*vecs[k])) % 360, k))
     alphabet = "ABCDEFGHIJKMNOPQRSTUVWXYZ"  # no "L": reserved for local-road zones
-    n = len(alphabet)
-    return {fk: (alphabet[i // n - 1] if i >= n else "") + alphabet[i % n] for i, fk in enumerate(order)}
+    used, letters = set(registry.values()) | RESERVED_CODES, {}
+    for fk in order:
+        text = " | ".join(fk)
+        prefix = letters[parents[fk]] if fk in parents else ""
+        extra = (f"{a}{k}" for k in itertools.count(2) for a in alphabet)  # A2, B2, ... then A3, B3, ...
+        labels = itertools.chain(alphabet, map("".join, itertools.product(alphabet, repeat=2)) if prefix else extra)
+        code = registry.get(text) or next(prefix + s for s in labels if prefix + s not in used)
+        registry[text] = letters[fk] = code
+        used.add(code)
+    return letters | {fk: letters[t] for fk, t in merged.items()}
 
 
 def _zone(rec: dict, letters: dict) -> tuple[str | None, str | None]:
@@ -240,7 +335,7 @@ def fork_candidates(cells: dict) -> list[dict]:
     return forks
 
 
-def postprocess(cfg: dict, cell_probes: list[dict], done: dict, hard: list[dict]):
+def postprocess(cfg: dict, cell_probes: list[dict], done: dict, hard: list[dict], registry: dict | None = None):
     res = cfg["grid"]["resolution"]
     cells = {}
     for p in cell_probes:
@@ -255,9 +350,12 @@ def postprocess(cfg: dict, cell_probes: list[dict], done: dict, hard: list[dict]
     for cid, f in flags.items():
         cells[cid]["reasons"] += f
 
-    letters = _family_letters(cfg, list(supported.values()))
+    merged = merge_small(supported, cfg.get("min_corridor_cells", 0))
+    letters = _family_letters(cfg, list(supported.values()), merged, branch_parents(supported, merged), registry)
     for r in cells.values():
         r["zone_code"], r["display_corridor_id"] = _zone(r, letters)
+        into = merged.get(tuple((r.get("corridor") or {}).get("family_key") or ()))
+        r["merged_into"] = " | ".join(into) if into else None
         r["candidate_zones"] = [r["zone_code"]] if r["zone_code"] else []
 
     # hard cases: same classifier; a conflicting reviewed point makes its cell mixed (spec §6.3)

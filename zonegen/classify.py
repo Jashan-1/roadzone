@@ -40,6 +40,7 @@ class Corridor:
     reasons: list = field(default_factory=list)
     directed_ways: list = field(default_factory=list)
     next_refs: tuple = ()  # longest-dwell highway after the backbone: the branch a fork diagnostic groups by
+    prev_family: tuple = ()  # longest-dwell highway before the backbone: the parent a branch name points to
 
 
 # --- bands -----------------------------------------------------------------
@@ -107,9 +108,17 @@ def is_backbone(seg: Segment, eligible_classes: set[str]) -> bool:
     return seg.road_class in eligible_classes and seg.use not in ("ramp", "turn_channel")
 
 
-def classify_corridor(segments: list[Segment], hub_limit: float, metric: str,
-                      eligible_classes: set[str], way_refs: dict, way_roles: dict) -> Corridor:
-    """Steps 1-6 of §6.5.1. `way_refs[way_id]` -> raw refs; `way_roles[way_id]` -> {ref: role}."""
+def _signed_roles(segs: list[Segment], ref: str, way_roles: dict) -> set[str]:
+    roles = {way_roles.get(s.way_id, {}).get(ref) for s in segs} - {None, ""}
+    return {r[0].upper() for r in roles if r.lower() in ("north", "south", "east", "west")}
+
+
+def classify_corridor(segments: list[Segment], hub_limit: float, metric: str, eligible_classes: set[str],
+                      way_refs: dict, way_roles: dict, highway_types: set[str] | None = None) -> Corridor:
+    """Steps 1-6 of §6.5.1. `way_refs[way_id]` -> raw refs; `way_roles[way_id]` -> {ref: role}.
+
+    `highway_types` keeps only those ref systems ('I', 'US', 'CA'); any other road, numbered or not, can't win.
+    """
     # 1. Hub clip on the configured metric; a crossing segment contributes its post-Hub share.
     post = []
     for seg in segments:
@@ -124,6 +133,8 @@ def classify_corridor(segments: list[Segment], hub_limit: float, metric: str,
     for i, (seg, dwell) in enumerate(post):
         eligible = is_backbone(seg, eligible_classes)
         key = ref_set(way_refs.get(seg.way_id, ())) if eligible else None
+        if key is not None and highway_types is not None:
+            key = tuple(r for r in key if r.split()[0] in highway_types) or None
         if key is not None and cur is not None and cur["refs"] == key and cur["last"] == i - 1:
             cur["segs"].append(seg)
             cur["dwell"] += dwell
@@ -147,6 +158,13 @@ def classify_corridor(segments: list[Segment], hub_limit: float, metric: str,
     downstream = sorted((r for r in runs if r["first"] > best["last"] and r["refs"] != best["refs"]),
                         key=lambda r: (-r["dwell"], r["first"]))
     c.next_refs = downstream[0]["refs"] if downstream else ()
+    upstream = sorted((r for r in runs if r["last"] < best["first"] and r["refs"] and r["refs"] != best["refs"]),
+                      key=lambda r: (-r["dwell"], r["first"]))
+    if upstream:
+        up = upstream[0]
+        roles = _signed_roles(up["segs"], up["refs"][0], way_roles)
+        c.prev_family = (*up["refs"], roles.pop() if len(roles) == 1 else
+                         quadrant(bearing_deg(up["segs"][0].start_pt, up["segs"][-1].end_pt)))
     if c.tied:
         c.reasons.append("tie")
     if not best["refs"]:
@@ -155,9 +173,7 @@ def classify_corridor(segments: list[Segment], hub_limit: float, metric: str,
 
     # 5. Direction: signed relation role of the primary ref, else the run's entry-to-exit bearing.
     if best["refs"]:
-        primary = best["refs"][0]
-        roles = {way_roles.get(s.way_id, {}).get(primary) for s in best["segs"]} - {None, ""}
-        roles = {r[0].upper() for r in roles if r.lower() in ("north", "south", "east", "west")}
+        roles = _signed_roles(best["segs"], best["refs"][0], way_roles)
         if len(roles) == 1:
             c.direction, c.direction_method = roles.pop(), "relation_role"
         elif len(roles) > 1:

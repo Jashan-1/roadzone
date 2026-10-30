@@ -92,3 +92,19 @@ def test_rejoining_the_backbone_is_not_a_branch():
     segs = [_seg(1, 9, 25, 37.0, 37.15), _seg(8, 25, 26, 37.15, 37.16, use="ramp"), _seg(2, 26, 30, 37.16, 37.2)]
     c = classify_corridor(segs, HUB, "distance", ELIGIBLE, REFS, {})
     assert c.refs == ("I 280",) and c.next_refs == ()
+
+
+def test_highway_types_skip_other_roads_for_the_longest_allowed_one():
+    refs = {1: ["CR G4"], 2: ["US 101"], 9: []}
+    segs = [_seg(1, 10, 40, 37.0, 37.3), _seg(2, 41, 45, 37.3, 37.4), _seg(9, 46, 60, 37.4, 37.6)]
+    assert classify_corridor(segs, HUB, "distance", ELIGIBLE, refs, {}).refs == ("CR G4",)  # no filter: county road wins
+    assert classify_corridor(segs, HUB, "distance", ELIGIBLE, refs, {}, {"I", "US"}).refs == ("US 101",)
+    c = classify_corridor(segs, HUB, "distance", ELIGIBLE, refs, {}, {"I"})
+    assert c.status == LOCAL
+
+
+def test_prev_family_is_the_longest_highway_before_the_winner():
+    refs = {1: ["I 280"], 3: ["US 101"], 5: ["CA 92"]}
+    segs = [_seg(1, 10, 20, 37.0, 37.1), _seg(5, 21, 50, 37.1, 37.3), _seg(3, 51, 60, 37.3, 37.4)]
+    c = classify_corridor(segs, HUB, "distance", ELIGIBLE, refs, {1: {"I 280": "north"}})
+    assert c.refs == ("CA 92",) and c.prev_family == ("I 280", "N") and c.next_refs == ("US 101",)
