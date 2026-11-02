@@ -97,10 +97,10 @@ def test_zone_highlight_lists_zones_in_order_and_renders(app):
 
 def test_new_run_needs_a_highway_choice(app):
     at = app.run()
-    pick = next(r for r in at.sidebar.radio if r.label == "Build corridors from")
-    assert pick.value is None
+    boxes = [c for c in at.sidebar.checkbox if "routes" in c.label or "Interstates" in c.label]
+    assert len(boxes) == 3 and not any(c.value for c in boxes)
     next(b for b in at.sidebar.button if "Generate" in b.label).click().run()
-    assert not at.exception and any("Choose which highways" in e.value for e in at.sidebar.error)
+    assert not at.exception and any("Tick at least one" in e.value for e in at.sidebar.error)
 
 
 def test_band_colours_run_green_to_red_and_band_view_renders(app):

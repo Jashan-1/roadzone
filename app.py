@@ -34,8 +34,7 @@ def band_colour(band: int, last: int) -> tuple[int, int, int]:
 
 
 GREY, PALE = (160, 160, 165), (235, 235, 238)
-HIGHWAYS = {"Interstates only": ["I"], "Interstates + US routes": ["I", "US"],
-            "Interstates + US + state routes": ["I", "US", "CA"]}
+HIGHWAYS = {"Interstates (I-)": "I", "US routes (US-)": "US", "State routes (CA-)": "CA"}
 MIN_LEGEND_CELLS = 10  # legend lists corridors at least this big; the map still shows every one
 TIP_FIELDS = ("h3", "zone_code", "status", "m_dist_mi", "m_time_min", "family_key", "direction_method",
               "snap_dist_m", "reason_codes")
@@ -65,14 +64,14 @@ with st.sidebar.form("new_run"):
     limit = st.number_input("Max coverage (road miles)", 5.0, 80.0, 50.0, 5.0)
     hub = st.number_input("Hub size (road miles)", 1.0, 40.0, 5.0, 1.0)
     step = st.number_input("Band size (road miles)", 1.0, 50.0, 10.0, 1.0)
-    highways = st.radio("Build corridors from", list(HIGHWAYS), index=None,
-                        help="Only these highways can name a corridor. Everywhere else joins the closest match on its "
-                             "route, or local roads (L).")
+    st.markdown("Build corridors from", help="Only the ticked highway types can name a corridor. Everywhere else "
+                                             "joins the closest match on its route, or local roads (L).")
+    highways = [code for label, code in HIGHWAYS.items() if st.checkbox(label)]
     min_cells = st.slider("Merge corridors smaller than (cells)", 0, 200, 30, 10,
                           help="Folds tiny corridors into the neighbour they touch most. 0 keeps every corridor.")
     go = st.form_submit_button("Generate zones")
-if go and highways is None:
-    st.sidebar.error("Choose which highways to build corridors from.")
+if go and not highways:
+    st.sidebar.error("Tick at least one highway type to build corridors from.")
 elif go and not (Path("data/valhalla_tiles").exists() and
                Path(load_config(Path("configs/stevens_creek.yaml"))["data"]["pbf"]).exists()):
     st.sidebar.error("Map data is still downloading or building. Try again when it finishes.")
@@ -89,13 +88,13 @@ elif go:
         cfg.update(label="custom", hard_cases=None)
         cfg["base"] = {"lat": lat, "lon": lon, "confirmed": False}
         cfg["coverage"].update(limit_miles=limit, hub_miles=hub, band_step_miles=step)
-        cfg.update(highway_types=HIGHWAYS[highways], min_corridor_cells=min_cells)
+        cfg.update(highway_types=highways, min_corridor_cells=min_cells)
         # road miles >= crow-flies miles, so this extent provably contains every covered cell
         cfg["grid"]["extent_radius_km"] = round(limit * 1.609344 + 2, 1)
         # budget scales with area: ~0.737 km² per res-8 cell
         cfg["request_budget"] = int(MAX_CALLS_PER_PROBE * math.pi * cfg["grid"]["extent_radius_km"] ** 2 / 0.737 * 1.1)
         path = Path("configs/custom") / (f"{lat:.5f}_{lon:.5f}_{limit:g}_{hub:g}_{step:g}_"
-                                         f"{'-'.join(HIGHWAYS[highways])}_{min_cells}.yaml")
+                                         f"{'-'.join(highways)}_{min_cells}.yaml")
         path.parent.mkdir(exist_ok=True)
         path.write_text(yaml.safe_dump(cfg, sort_keys=False))
         with st.spinner(f"Routing every cell out and back (~{limit / 50 * limit / 50 * 2.5:.0f} min)…"):
