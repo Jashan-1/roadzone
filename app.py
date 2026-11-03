@@ -72,8 +72,9 @@ with st.sidebar.form("new_run"):
     go = st.form_submit_button("Generate zones")
 if go and not highways:
     st.sidebar.error("Tick at least one highway type to build corridors from.")
+# snapshot.json is written only after the tiles finish building; the raw .pbf isn't needed once refs are cached
 elif go and not (Path("data/valhalla_tiles").exists() and
-               Path(load_config(Path("configs/stevens_creek.yaml"))["data"]["pbf"]).exists()):
+               Path(load_config(Path("configs/stevens_creek.yaml"))["data"]["snapshot"]).exists()):
     st.sidebar.error("Map data is still downloading or building. Try again when it finishes.")
 elif go:
     lat, lon = lookup.parse_coordinates(where) or (None, None)
