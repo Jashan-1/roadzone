@@ -321,48 +321,50 @@ with tab_map:
         st.session_state["view_nonce"] += 1
     # Streamlit keeps a panned view across reruns; a new container key per click remounts the map at the base
     with st.container(key=f"map{st.session_state['view_nonce']}"):
-        st.pydeck_chart(deck(cells, base, run), height=650)
-    corridors, ccol = corridor_colours(cells)
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Legend")
-        if by_corridor:
-            fams, bands = {}, defaultdict(set)
-            for c in cells:
-                if c.get("display_corridor_id") and c.get("family_key") and c.get("hatch_status") != "hatched":
-                    fams.setdefault(c["display_corridor_id"], c.get("merged_into") or c["family_key"])
-                if c.get("zone_code") and c.get("band"):
-                    bands[c["display_corridor_id"]].add(c["band"])
-            size = Counter(c.get("display_corridor_id") for c in cells if c.get("hatch_status") != "hatched")
-            small = [cid for cid in corridors if cid not in ("HUB", "L") and size[cid] < MIN_LEGEND_CELLS]
-            for cid in corridors:
-                if cid in small:
-                    continue  # display only: tiny corridors keep their letter on the map and in the tooltip
-                label = "Hub (zone 0)" if cid == "HUB" else "Local roads" if cid == "L" else f"{cid}: {fams.get(cid, '')}"
-                if mode == ZONES and cid != "HUB":
-                    sw = " ".join(f"<span style='color:rgb{shade(ccol[cid], b)}'>■</span>{b}{cid}"
-                                  for b in sorted(bands[cid]))
-                    st.markdown(f"{sw} · {html.escape(label)}", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"<span style='color:rgb{ccol[cid]}'>■</span> {html.escape(label)}",
+        st.pydeck_chart(deck(cells, base, run), height=520)
+    # legend scrolls in its own box so the map stays on screen while reading it
+    with st.container(height=320):
+        corridors, ccol = corridor_colours(cells)
+        left, right = st.columns(2)
+        with left:
+            st.subheader("Legend")
+            if by_corridor:
+                fams, bands = {}, defaultdict(set)
+                for c in cells:
+                    if c.get("display_corridor_id") and c.get("family_key") and c.get("hatch_status") != "hatched":
+                        fams.setdefault(c["display_corridor_id"], c.get("merged_into") or c["family_key"])
+                    if c.get("zone_code") and c.get("band"):
+                        bands[c["display_corridor_id"]].add(c["band"])
+                size = Counter(c.get("display_corridor_id") for c in cells if c.get("hatch_status") != "hatched")
+                small = [cid for cid in corridors if cid not in ("HUB", "L") and size[cid] < MIN_LEGEND_CELLS]
+                for cid in corridors:
+                    if cid in small:
+                        continue  # display only: tiny corridors keep their letter on the map and in the tooltip
+                    label = "Hub (zone 0)" if cid == "HUB" else "Local roads" if cid == "L" else f"{cid}: {fams.get(cid, '')}"
+                    if mode == ZONES and cid != "HUB":
+                        sw = " ".join(f"<span style='color:rgb{shade(ccol[cid], b)}'>■</span>{b}{cid}"
+                                      for b in sorted(bands[cid]))
+                        st.markdown(f"{sw} · {html.escape(label)}", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"<span style='color:rgb{ccol[cid]}'>■</span> {html.escape(label)}",
+                                    unsafe_allow_html=True)
+                if small:
+                    st.caption(f"+ {len(small)} small corridors (under {MIN_LEGEND_CELLS} cells each): "
+                               + ", ".join(f"{cid} ({fams.get(cid, '?')})" for cid in small))
+            else:
+                labels = mode_bands(run)
+                for i, lab in enumerate(labels):
+                    st.markdown(f"<span style='color:rgb{band_colour(i, len(labels) - 1)}'>■</span> Band {i}: {lab}",
                                 unsafe_allow_html=True)
-            if small:
-                st.caption(f"+ {len(small)} small corridors (under {MIN_LEGEND_CELLS} cells each): "
-                           + ", ".join(f"{cid} ({fams.get(cid, '?')})" for cid in small))
-        else:
-            labels = mode_bands(run)
-            for i, lab in enumerate(labels):
-                st.markdown(f"<span style='color:rgb{band_colour(i, len(labels) - 1)}'>■</span> Band {i}: {lab}",
-                            unsafe_allow_html=True)
-        st.caption("Faint cells = unknown / mixed / needs review (display colour only, not an assignment). "
-                   "Red pins = checked addresses.")
-        if by_corridor:
-            st.caption("Outlined cells = isolated patch: reached by a different corridor than most of their neighbours. "
-                       "A real result shown as an exception, not merged away.")
-    with right:
-        st.subheader("Cell counts")
-        n = counts(cells)
-        st.table({"status": list(n), "cells": list(n.values())})
+            st.caption("Faint cells = unknown / mixed / needs review (display colour only, not an assignment). "
+                       "Red pins = checked addresses.")
+            if by_corridor:
+                st.caption("Outlined cells = isolated patch: reached by a different corridor than most of their neighbours. "
+                           "A real result shown as an exception, not merged away.")
+        with right:
+            st.subheader("Cell counts")
+            n = counts(cells)
+            st.table({"status": list(n), "cells": list(n.values())})
 
 with tab_addr:
     st.subheader("Check addresses")
