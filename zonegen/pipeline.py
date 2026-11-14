@@ -135,6 +135,9 @@ def run(cfg_path: Path, fresh: bool = False, max_probes: int | None = None) -> P
     refs = load_ref_index(Path(cfg["data"]["pbf"]), Path(cfg["data"]["refs_cache"]))
     router.init_worker(cfg, refs)
     base_snap = router.snap(cfg["base"]["lat"], cfg["base"]["lon"])
+    if base_snap is None:  # e.g. a point in the sea: every cell would come out "unknown" with no hint why
+        out.rmdir()  # nothing written yet; an empty dir would only clutter runs/
+        raise SystemExit("No drivable road near this location. Pick a point on or next to a street.")
 
     cells = candidate_cells(cfg)
     probes = [{"id": c, "kind": "cell", "lat": round(h3.cell_to_latlng(c)[0], 7),

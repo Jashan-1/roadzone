@@ -34,12 +34,14 @@ def band_colour(band: int, last: int) -> tuple[int, int, int]:
 
 
 GREY, PALE = (160, 160, 165), (235, 235, 238)
-HIGHWAYS = {"Interstates (I-)": "I", "US routes (US-)": "US", "State routes (CA-)": "CA"}
+HIGHWAYS = {"Interstates — like I-280, I-880": "I", "US highways — like US-101": "US",
+            "State highways — like CA-17, CA-85": "CA"}
+NO_ZONE = {"outside_coverage": "Too far", "unreachable": "No road"}
 MIN_LEGEND_CELLS = 10  # legend lists corridors at least this big; the map still shows every one
 TIP_FIELDS = ("h3", "zone_code", "status", "m_dist_mi", "m_time_min", "family_key", "direction_method",
               "snap_dist_m", "reason_codes")
 
-st.set_page_config(page_title="RoadZone Cell Map", layout="wide")
+st.set_page_config(page_title="RoadZone", layout="wide")
 
 
 @st.cache_data
@@ -56,22 +58,54 @@ def boundary():
     return load_boundary(load_config(Path("configs/stevens_creek.yaml"))["data"].get("boundary"))
 
 
-with st.sidebar.form("new_run"):
-    st.subheader("New run")
-    name = st.text_input("Run name", placeholder="e.g. Santa Rosa dealership")
-    where = st.text_input("Base location (lat, lon)", value="37.32305, -121.97000",
-                          help="Paste coordinates as copied from Google Maps.")
-    limit = st.number_input("Max coverage (road miles)", 5.0, 80.0, 50.0, 5.0)
-    hub = st.number_input("Hub size (road miles)", 1.0, 40.0, 5.0, 1.0)
-    step = st.number_input("Band size (road miles)", 1.0, 50.0, 10.0, 1.0)
-    st.markdown("Build corridors from", help="Only the ticked highway types can name a corridor. Everywhere else "
-                                             "joins the closest match on its route, or local roads (L).")
-    highways = [code for label, code in HIGHWAYS.items() if st.checkbox(label)]
-    min_cells = st.slider("Merge corridors smaller than (cells)", 0, 200, 30, 10,
-                          help="Folds tiny corridors into the neighbour they touch most. 0 keeps every corridor.")
-    go = st.form_submit_button("Generate zones")
+def make_run(cfg: dict, name: str, wait_msg: str) -> None:
+    """Write the config, run the pipeline, name the run and select it. Errors show in the sidebar."""
+    b, c = cfg["base"], cfg["coverage"]
+    # road miles >= crow-flies miles, so this extent provably contains every covered cell
+    cfg["grid"]["extent_radius_km"] = round(c["limit_miles"] * 1.609344 + 2, 1)
+    # budget scales with area: ~0.737 km² per res-8 cell
+    cfg["request_budget"] = int(MAX_CALLS_PER_PROBE * math.pi * cfg["grid"]["extent_radius_km"] ** 2 / 0.737 * 1.1)
+    path =Path("configs/custom") / (f"{b['lat']:.5f}_{b['lon']:.5f}_{c['limit_miles']:g}_{c['hub_miles']:g}_"
+                                     f"{c['band_step_miles']:g}_{'-'.join(cfg['highway_types'])}_"
+                                     f"{cfg['min_corridor_cells']}.yaml")
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(yaml.safe_dump(cfg, sort_keys=False))
+    with st.spinner(wait_msg):
+        proc = subprocess.run([sys.executable, "-m", "zonegen", "run", str(path)], capture_output=True, text=True)
+    if proc.returncode:
+        st.sidebar.error(proc.stderr[-1500:])
+        return
+    st.session_state["run"] = Path(proc.stdout.strip().splitlines()[-1]).name
+    if name.strip():
+        (Path("runs") / st.session_state["run"] / "name.txt").write_text(name.strip())
+    load.clear()
+
+
+view_box = st.sidebar.container()  # filled further down, but drawn first: picking a location is the main job
+with st.sidebar.expander("➕ Make zones for a new location"), st.form("new_run", border=False):
+    st.markdown("**1. Where is the shop?**")
+    name = st.text_input("Shop name (optional)", placeholder="e.g. Santa Rosa dealership",
+                         help="The name dealers will pick from the location list.")
+    where = st.text_input("Shop location", value="37.32305, -121.97000",
+                          help="In Google Maps, right-click the shop and click the numbers at the top to copy them. "
+                               "Paste them here. All miles are counted from this point.")
+    st.markdown("**2. How far do the vans go?** (miles by road)")
+    limit = st.number_input("Furthest distance served", 5.0, 80.0, 50.0, 5.0,
+                            help="Places further than this by road are not served.")
+    hub = st.number_input("Close-in area (zone 0)", 1.0, 40.0, 5.0, 1.0,
+                          help="Everything this close to the shop is one zone, zone 0.")
+    step = st.number_input("Size of each ring", 1.0, 50.0, 10.0, 1.0,
+                           help="After zone 0, each ring is this many miles wide. Rings are numbered 1, 2, 3…")
+    st.markdown("**3. Which highways give zones their letters?**",
+                help="Each ticked highway becomes a zone letter (A, B, C…). Places off those highways join the "
+                     "nearest one on their route, or get L for local roads.")
+    highways = [code for label, code in HIGHWAYS.items() if st.checkbox(label, value=code == "I")]
+    min_cells = st.slider("Join very small zones into a neighbour", 0, 200, 30, 10,
+                          help="Zones smaller than this many map tiles are joined to the zone next to them. "
+                               "0 keeps every zone, however small.")
+    go = st.form_submit_button("Make zones", type="primary", width="stretch")
 if go and not highways:
-    st.sidebar.error("Tick at least one highway type to build corridors from.")
+    st.sidebar.error("Tick at least one highway type in step 3.")
 # snapshot.json is written only after the tiles finish building; the raw .pbf isn't needed once refs are cached
 elif go and not (Path("data/valhalla_tiles").exists() and
                Path(load_config(Path("configs/stevens_creek.yaml"))["data"]["snapshot"]).exists()):
@@ -83,30 +117,14 @@ elif go:
     elif not in_boundary(boundary(), lat, lon):
         st.sidebar.error(f"{lat:.5f}, {lon:.5f} is outside the loaded map data (California).")
     elif hub >= limit:
-        st.sidebar.error("Hub must be smaller than the max coverage.")
+        st.sidebar.error("Zone 0 must be smaller than the furthest distance.")
     else:
         cfg = yaml.safe_load(Path("configs/stevens_creek.yaml").read_text())
         cfg.update(label="custom", hard_cases=None)
         cfg["base"] = {"lat": lat, "lon": lon, "confirmed": False}
         cfg["coverage"].update(limit_miles=limit, hub_miles=hub, band_step_miles=step)
         cfg.update(highway_types=highways, min_corridor_cells=min_cells)
-        # road miles >= crow-flies miles, so this extent provably contains every covered cell
-        cfg["grid"]["extent_radius_km"] = round(limit * 1.609344 + 2, 1)
-        # budget scales with area: ~0.737 km² per res-8 cell
-        cfg["request_budget"] = int(MAX_CALLS_PER_PROBE * math.pi * cfg["grid"]["extent_radius_km"] ** 2 / 0.737 * 1.1)
-        path = Path("configs/custom") / (f"{lat:.5f}_{lon:.5f}_{limit:g}_{hub:g}_{step:g}_"
-                                         f"{'-'.join(highways)}_{min_cells}.yaml")
-        path.parent.mkdir(exist_ok=True)
-        path.write_text(yaml.safe_dump(cfg, sort_keys=False))
-        with st.spinner(f"Routing every cell out and back (~{limit / 50 * limit / 50 * 2.5:.0f} min)…"):
-            proc = subprocess.run([sys.executable, "-m", "zonegen", "run", str(path)], capture_output=True, text=True)
-        if proc.returncode:
-            st.sidebar.error(proc.stderr[-1500:])
-        else:
-            st.session_state["run"] = Path(proc.stdout.strip().splitlines()[-1]).name
-            if name.strip():
-                (Path("runs") / st.session_state["run"] / "name.txt").write_text(name.strip())
-            load.clear()
+        make_run(cfg, name, f"Making zones for a new location (about {max(1, round(limit / 50 * limit / 50 * 2.5))} min)…")
 
 runs = sorted((p for p in Path("runs").iterdir() if (p / "cells.geojson").exists()), key=lambda p: p.stat().st_mtime)
 runs = [p.name for p in runs]
@@ -127,17 +145,32 @@ def run_cfg(rid: str) -> dict | None:
         return None
 
 
-def run_label(rid: str) -> str:
-    """Friendly name (runs/<id>/name.txt) plus the coverage settings, falling back to the run ID."""
+def run_name(rid: str) -> str:
     f = Path("runs") / rid / "name.txt"
-    name = f.read_text().strip() if f.exists() else rid
+    return f.read_text().strip() if f.exists() else rid
+
+
+def run_settings(rid: str) -> str:
     cfg = run_cfg(rid)
     if not cfg:
-        return name
+        return ""
     c = cfg["coverage"]
     types = "+".join(cfg.get("highway_types") or [])
-    return f"{name} · {c['limit_miles']:g} mi, hub {c['hub_miles']:g}, bands {c['band_step_miles']:g}" + \
-        (f", {types}" if types else "")
+    return f"up to {c['limit_miles']:g} mi · zone 0 = {c['hub_miles']:g} mi · rings of {c['band_step_miles']:g} mi" + \
+        (f" · {types}" if types else "")
+
+
+HW_NAMES = {code: label.split(" —")[0] for label, code in HIGHWAYS.items()}
+
+
+def run_label(rid: str) -> str:
+    """Shop name alone; settings, then the run id, are added only as needed to tell same-named runs apart."""
+    name = run_name(rid)
+    if sum(run_name(r) == name for r in runs) == 1:
+        return name
+    full = f"{name} ({run_settings(rid)})"
+    twins = sum(f"{run_name(r)} ({run_settings(r)})" == full for r in runs) > 1
+    return f"{full} · {rid}" if twins else full
 
 
 def band_labels(limit: float, hub: float, step: float, unit: str) -> list[str]:
@@ -187,35 +220,99 @@ def zone_shapes(run: str) -> tuple[dict, list[dict]]:
     return {"type": "FeatureCollection", "features": feats}, labels
 
 
-run = st.sidebar.selectbox("Show run", runs, index=runs.index(default) if default in runs else len(runs) - 1,
-                           format_func=run_label)
-compare = st.sidebar.multiselect("Compare with branches", [r for r in runs if r != run], format_func=run_label,
-                                 max_selections=2, help="Other dealership locations (runs) shown side by side")
 ZONES, CORRIDORS = "Zones (band + corridor)", "Corridors (highway)"
-mode = st.sidebar.radio("Colour by", [ZONES, CORRIDORS, "Road-mile bands", "Free-flow minute bands"],
-                        help="A zone is a band plus a corridor: 1A and 2A are on the same highway, one band apart. "
-                             "2AB is a branch reached through corridor A. Zones shade each highway darker per band.")
-by_corridor = mode in (ZONES, CORRIDORS)
-opacity = st.sidebar.slider("Zone opacity", 10, 100, 70, 5, format="%d%%",
-                            help="Lower it to see the streets and place names under the zones.") / 100
-focus = None
-if mode == ZONES:
-    focus = st.sidebar.selectbox("Highlight a zone", ["All zones", *zone_codes(run)],
-                                 help="Dims every other zone so one zone's shape is easy to see.")
-    focus = None if focus == "All zones" else focus
-show_out = st.sidebar.checkbox("Show outside / unreachable cells", value=False)
-show_unknown = st.sidebar.checkbox("Show unknown cells (near a road)", value=True)
-show_noroad = st.sidebar.checkbox("Show no-road / track-only / no-map-data cells", value=False)
+MODE_NAMES = {ZONES: "Zones (like 2A)", CORRIDORS: "Highways only", "Road-mile bands": "Distance rings (miles)",
+              "Free-flow minute bands": "Drive-time rings (no traffic)"}
+with view_box:
+    st.subheader("📍 Pick your location")
+    # one entry per shop name; each name's runs keyed by (highway mix, limit, hub, ring, merge), newest wins
+    def run_key(r: str) -> tuple:
+        cfg = run_cfg(r) or {}
+        c = cfg.get("coverage") or {"limit_miles": 50, "hub_miles": 5, "band_step_miles": 10}
+        return (frozenset(cfg.get("highway_types") or []), float(c["limit_miles"]), float(c["hub_miles"]),
+                float(c["band_step_miles"]), int(cfg.get("min_corridor_cells", 0)))
+
+    shops = defaultdict(dict)
+    for r in runs:
+        shops[run_name(r)][run_key(r)] = r
+    if default not in runs:
+        default = runs[-1]
+    names = list(shops)
+    shop = st.selectbox("Location", names, index=names.index(run_name(default)), label_visibility="collapsed")
+    variants = shops[shop]
+    start = next((k for k, r in variants.items() if r == default), list(variants)[-1])
+    st.markdown("**Highways that give zones their letters**",
+                help="Tick the highway types to use. The map shows the zones made with exactly that mix.")
+    ticked = frozenset(code for label, code in HIGHWAYS.items()
+                       if st.checkbox(label, value=code in start[0], key=f"hw_{shop}_{code}"))
+    st.markdown("**How far do the vans go?** (miles by road)",
+                help="Change any number and the zones are remade. Small changes take a few seconds; "
+                     "a bigger furthest distance takes a few minutes, because new roads must be driven.")
+    want = (ticked,
+            st.number_input("Furthest distance served", 5.0, 80.0, start[1], 5.0, key=f"lim_{shop}",
+                            help="Places further than this by road are not served."),
+            st.number_input("Close-in area (zone 0)", 1.0, 40.0, start[2], 1.0, key=f"hub_{shop}",
+                            help="Everything this close to the shop is one zone, zone 0."),
+            st.number_input("Size of each ring", 1.0, 50.0, start[3], 1.0, key=f"step_{shop}",
+                            help="After zone 0, each ring is this many miles wide. Rings are numbered 1, 2, 3…"),
+            st.slider("Join very small zones into a neighbour", 0, 200, start[4], 10, key=f"merge_{shop}",
+                      help="Zones smaller than this many map tiles are joined to the zone next to them. "
+                           "0 keeps every zone, however small."))
+    empty = want not in variants
+    run = variants.get(want, variants[start])  # empty: keep the page and base point, draw no zones
+    if empty and want[2] >= want[1]:
+        st.info("Zone 0 must be smaller than the furthest distance.")
+    elif empty and ticked:
+        # same shop, new settings: routes are cached per base, so usually only the labelling is redone
+        try:
+            cfg = yaml.safe_load(Path(json.loads((Path("runs") / run / "run_meta.json").read_text())["config"])
+                                 .read_text())
+        except (OSError, KeyError, ValueError):
+            cfg = None
+        if cfg:
+            cfg.update(label="custom", hard_cases=None, min_corridor_cells=want[4],
+                       highway_types=[c for c in HIGHWAYS.values() if c in ticked])
+            cfg["coverage"].update(limit_miles=want[1], hub_miles=want[2], band_step_miles=want[3])
+            far = want[1] > start[1]
+            make_run(cfg, shop, "Driving the new, further roads (a few minutes)…" if far else "Making zones…")
+            if st.session_state.get("run") not in runs:
+                st.rerun()  # the new run is now on disk: redraw with it selected
+        else:
+            st.warning("Couldn't make zones for this mix: this location's settings file is missing.")
+    elif empty:
+        st.info("Tick at least one highway type to see zones.")
+    else:
+        st.caption(run_settings(run))
+    mode = st.radio("What the colours show", list(MODE_NAMES), format_func=MODE_NAMES.get,
+                    help="**Zones:** number = how far (ring), letter = which highway. 2A = ring 2 on highway A.  \n"
+                         "**Highways only:** one colour per highway.  \n"
+                         "**Distance rings:** green is close, red is far.  \n"
+                         "**Drive-time rings:** same idea in minutes, with no traffic.")
+    by_corridor = mode in (ZONES, CORRIDORS)
+    focus = None
+    if mode == ZONES:
+        focus = st.selectbox("Look at one zone", ["All zones", *([] if empty else zone_codes(run))],
+                             help="Pick a zone to fade out all the others.")
+        focus = None if focus == "All zones" else focus
+    opacity = st.slider("Colour strength", 10, 100, 70, 5, format="%d%%",
+                        help="Lower it to see the streets and town names under the colours.") / 100
+    with st.expander("More options"):
+        compare = st.multiselect("Compare with other locations", [r for r in runs if r != run],
+                                 format_func=run_label, max_selections=2,
+                                 help="Shows up to two other locations side by side in the 'Compare branches' tab.")
+        show_unknown = st.checkbox("Show unsure tiles", value=True,
+                                   help="Faint tiles where the answer wasn't clear. A person should check them.")
+        show_noroad = st.checkbox("Show tiles with no road", value=False,
+                                  help="Grey tiles with no usable road: water, parks, farm tracks, or no map data.")
+        show_out = st.checkbox("Show tiles too far away", value=False,
+                               help="Pale tiles past the furthest distance, or that no road reaches.")
 meta, cells, base = load(run)
+if empty:
+    cells = []
 st.session_state.setdefault("addresses", [])
 st.session_state.setdefault("view_nonce", 0)
 
-st.title("RoadZone cell map")
-st.warning(meta.get("notice", "") + ("" if meta.get("base_confirmed") else
-                                     " Base point is a placeholder, not the dealer's van entrance."))
-if not (run_cfg(run) or {}).get("highway_types"):
-    st.info("Older run, built before the highway choice: its corridors and letters will differ from a new run. "
-            "Generate it again before planning calendars around these zones.")
+st.title("RoadZone")
 
 
 def shade(rgb: tuple[int, int, int], band: int | None) -> tuple[int, int, int]:
@@ -270,7 +367,7 @@ def map_layers(cells: list[dict], run: str) -> list:
         row["patch"] = "isolated patch" if by_corridor and not dim and c["h3"] in solid and isolated(c["h3"]) else ""
         rows.append(row)
     zone_layers = []
-    if mode == ZONES:
+    if mode == ZONES and cells:
         outlines, labels = zone_shapes(run)
         if focus:
             outlines = {**outlines, "features": [f for f in outlines["features"] if f["properties"]["zone"] == focus]}
@@ -304,20 +401,26 @@ def deck(cells: list[dict], base: list[float], run: str, zoom: float = 8.5) -> p
     base_layer = pdk.Layer("ScatterplotLayer", [{"pos": base}], get_position="pos", get_radius=400,
                            get_fill_color=[0, 0, 0], pickable=False)
     # plain-text tooltip: corridor names come from editable OSM tags and must not be rendered as HTML
-    tooltip = {"text": "{zone_code} {status} {patch}\n{m_dist_mi} mi · {m_time_min} free-flow min\n"
-                       "corridor: {family_key} ({direction_method})\nsnap: {snap_dist_m} m\nreasons: {reason_codes}"}
+    tooltip = {"text": "Zone {zone_code}\n{m_dist_mi} road miles · {m_time_min} min with no traffic\n"
+                       "Highway: {family_key}\n{patch}"}
     return pdk.Deck(layers=[*map_layers(cells, run), base_layer], tooltip=tooltip, map_style="light",
                     initial_view_state=pdk.ViewState(latitude=base[1], longitude=base[0], zoom=zoom))
 
 
-def counts(cells: list[dict]) -> Counter:
-    return Counter(c["status"] for c in cells)
+DIRS = {"N": "north", "S": "south", "E": "east", "W": "west"}
 
 
-tab_map, tab_addr, tab_cmp, tab_report = st.tabs(["Map", "Addresses", "Compare branches", "Failure report"])
+def road_name(key) -> str:
+    """'I 15 | N' -> 'I-15 north': the legend is read by dealers, not engineers."""
+    parts = [p.strip() for p in str(key).split("|")]
+    road = re.sub(r"^(I|US|CA|SR) (\S+)", r"\1-\2", parts[0])
+    return " ".join([road, *(DIRS.get(p, p) for p in parts[1:])]).strip()
+
+
+tab_map, tab_addr, tab_cmp = st.tabs(["Map", "Check an address", "Compare locations"])
 
 with tab_map:
-    if st.button("⌖ Re-center on base", help="Jump back to the dealership after panning or zooming away"):
+    if st.button("⌖ Back to the shop", help="Move the map back to the shop after you've dragged or zoomed it."):
         st.session_state["view_nonce"] += 1
     # Streamlit keeps a panned view across reruns; a new container key per click remounts the map at the base
     with st.container(key=f"map{st.session_state['view_nonce']}"):
@@ -325,53 +428,43 @@ with tab_map:
     # legend scrolls in its own box so the map stays on screen while reading it
     with st.container(height=320):
         corridors, ccol = corridor_colours(cells)
-        left, right = st.columns(2)
-        with left:
-            st.subheader("Legend")
-            if by_corridor:
-                fams, bands = {}, defaultdict(set)
-                for c in cells:
-                    if c.get("display_corridor_id") and c.get("family_key") and c.get("hatch_status") != "hatched":
-                        fams.setdefault(c["display_corridor_id"], c.get("merged_into") or c["family_key"])
-                    if c.get("zone_code") and c.get("band"):
-                        bands[c["display_corridor_id"]].add(c["band"])
-                size = Counter(c.get("display_corridor_id") for c in cells if c.get("hatch_status") != "hatched")
-                small = [cid for cid in corridors if cid not in ("HUB", "L") and size[cid] < MIN_LEGEND_CELLS]
-                for cid in corridors:
-                    if cid in small:
-                        continue  # display only: tiny corridors keep their letter on the map and in the tooltip
-                    label = "Hub (zone 0)" if cid == "HUB" else "Local roads" if cid == "L" else f"{cid}: {fams.get(cid, '')}"
-                    if mode == ZONES and cid != "HUB":
-                        sw = " ".join(f"<span style='color:rgb{shade(ccol[cid], b)}'>■</span>{b}{cid}"
-                                      for b in sorted(bands[cid]))
-                        st.markdown(f"{sw} · {html.escape(label)}", unsafe_allow_html=True)
-                    else:
-                        st.markdown(f"<span style='color:rgb{ccol[cid]}'>■</span> {html.escape(label)}",
-                                    unsafe_allow_html=True)
-                if small:
-                    st.caption(f"+ {len(small)} small corridors (under {MIN_LEGEND_CELLS} cells each): "
-                               + ", ".join(f"{cid} ({fams.get(cid, '?')})" for cid in small))
-            else:
-                labels = mode_bands(run)
-                for i, lab in enumerate(labels):
-                    st.markdown(f"<span style='color:rgb{band_colour(i, len(labels) - 1)}'>■</span> Band {i}: {lab}",
+        st.subheader("Legend")
+        if by_corridor:
+            fams, bands = {}, defaultdict(set)
+            for c in cells:
+                if c.get("display_corridor_id") and c.get("family_key") and c.get("hatch_status") != "hatched":
+                    fams.setdefault(c["display_corridor_id"], c.get("merged_into") or c["family_key"])
+                if c.get("zone_code") and c.get("band"):
+                    bands[c["display_corridor_id"]].add(c["band"])
+            size = Counter(c.get("display_corridor_id") for c in cells if c.get("hatch_status") != "hatched")
+            small = [cid for cid in corridors if cid not in ("HUB", "L") and size[cid] < MIN_LEGEND_CELLS]
+            for cid in corridors:
+                if cid in small:
+                    continue  # display only: tiny corridors keep their letter on the map and in the tooltip
+                label = "Hub (zone 0)" if cid == "HUB" else "Local roads" if cid == "L" else f"{cid}: {road_name(fams.get(cid, ''))}"
+                if mode == ZONES and cid != "HUB":
+                    sw = " ".join(f"<span style='color:rgb{shade(ccol[cid], b)}'>■</span>{b}{cid}"
+                                  for b in sorted(bands[cid]))
+                    st.markdown(f"{sw} · {html.escape(label)}", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<span style='color:rgb{ccol[cid]}'>■</span> {html.escape(label)}",
                                 unsafe_allow_html=True)
-            st.caption("Faint cells = unknown / mixed / needs review (display colour only, not an assignment). "
-                       "Red pins = checked addresses.")
-            if by_corridor:
-                st.caption("Outlined cells = isolated patch: reached by a different corridor than most of their neighbours. "
-                           "A real result shown as an exception, not merged away.")
-        with right:
-            st.subheader("Cell counts")
-            n = counts(cells)
-            st.table({"status": list(n), "cells": list(n.values())})
+            if small:
+                st.caption(f"Plus {len(small)} very small highway zones: "
+                           + ", ".join(f"{cid} ({road_name(fams.get(cid, '?'))})" for cid in small))
+        else:
+            labels = mode_bands(run)
+            for i, lab in enumerate(labels):
+                st.markdown(f"<span style='color:rgb{band_colour(i, len(labels) - 1)}'>■</span> Ring {i}: {lab}",
+                            unsafe_allow_html=True)
+        st.caption("Faint tiles = not sure, a person should check them. Red pins = addresses you checked.")
+        if by_corridor:
+            st.caption("Black outline = a small spot reached by a different highway than the tiles around it.")
 
 with tab_addr:
-    st.subheader("Check addresses")
-    st.caption("One per line: a street address, or coordinates copied from Google Maps (right-click, e.g. "
-               "`37.3230, -121.9700`). Each one is routed out and back from every selected branch. "
-               "Street addresses are looked up with OpenStreetMap Nominatim, an outside service, so the text "
-               "leaves this machine; coordinates never do.")
+    st.subheader("Which zone is an address in?")
+    st.caption("Type one address per line, or paste coordinates from Google Maps (e.g. `37.3230, -121.9700`). "
+               "Typed addresses are looked up on OpenStreetMap, an outside website; coordinates stay here.")
     text = st.text_area("Addresses", placeholder="37.4419, -122.1430\n1 Infinite Loop, Cupertino, CA", height=120)
     go_check, go_clear = st.columns([1, 6])
     if go_clear.button("Clear"):
@@ -379,7 +472,7 @@ with tab_addr:
     if go_check.button("Check", type="primary"):
         branches = [run, *compare]
         found = []
-        with st.spinner(f"Routing {len(text.splitlines())} address(es) for {len(branches)} branch(es)…"):
+        with st.spinner("Checking…"):
             for line in filter(str.strip, text.splitlines()):
                 point = lookup.resolve(line)
                 if point is None:
@@ -398,37 +491,52 @@ with tab_addr:
                 found.append(point)
         st.session_state["addresses"] = st.session_state["addresses"] + found
     for a in st.session_state["addresses"]:
-        st.markdown(f"**{html.escape(a['label'])}**  \n`{a['lat']:.5f}, {a['lon']:.5f}` · {a['source']}")
+        st.markdown(f"**{html.escape(a['label'])}**  \n`{a['lat']:.5f}, {a['lon']:.5f}`")
         covered = {b: r for b, r in a["results"].items() if r.get("zone")}
         best = min(covered, key=lambda b: covered[b]["miles"]) if covered else None
-        st.table([{"branch": ("⭐ " if b == best else "") + run_label(b), "zone": r.get("zone") or "-",
+        st.table([{"location": ("⭐ " if b == best else "") + run_label(b),
+                   "zone": r.get("zone") or NO_ZONE.get(r.get("status"), "Not sure"),
                    "road miles": f"{r['miles']:.1f}" if r.get("miles") is not None else "-",
-                   "free-flow min": r.get("minutes") if r.get("minutes") is not None else "-", "status": r.get("status"),
-                   "needs review": "yes" if r.get("review") else "", "corridor": r.get("corridor"),
-                   "reasons": r.get("reasons")} for b, r in a["results"].items()])
+                   "minutes (no traffic)": r.get("minutes") if r.get("minutes") is not None else "-",
+                   "needs a check": "yes" if r.get("review") or not (r.get("zone") or r.get("status") in NO_ZONE) else ""}
+                  for b, r in a["results"].items()])
     if st.session_state["addresses"]:
-        st.caption("⭐ = branch with the fewest road miles among those that cover the address. Review flags mean a "
-                   "person should confirm (track access, unnamed road, or a corridor not on that branch's map).")
+        st.caption("⭐ = the closest location by road. 'Needs a check' means a person should confirm it.")
 
 with tab_cmp:
     branches = [run, *compare]
     if not compare:
-        st.info("Pick one or two branches under **Compare with branches** in the sidebar.")
-    summary = []
-    for b in branches:
-        m, cs, bs = load(b)
-        meta_b = json.loads((Path("runs") / b / "run_meta.json").read_text()) if (Path("runs") / b / "run_meta.json").exists() else {}
-        n = counts(cs)
-        summary.append({"branch": run_label(b), "base": f"{bs[1]:.4f}, {bs[0]:.4f}",
-                        "zoned cells": n["centroid_sampled"] + n["mixed"], "outside": n["outside_coverage"],
-                        "unknown": n["unknown"], "corridors": len([x for x in corridor_colours(cs)[0] if x not in ("HUB", "L")]),
-                        "fork candidates": len(meta_b.get("forks", []))})
-    st.table(summary)
+        st.info("To compare, open **More options** in the sidebar and pick up to two other locations.")
     cols = st.columns(len(branches))
     for col, b in zip(cols, branches):
         with col:
             st.caption(run_label(b))
             st.pydeck_chart(deck(load(b)[1], load(b)[2], b, zoom=7.8), height=420)
 
-with tab_report:
-    st.markdown((Path("runs") / run / "failure_report.md").read_text())
+
+st.divider()
+st.subheader("How the zones are made")
+st.markdown("""
+1. **We cut the map into small hexagon tiles.** Each tile is about a quarter of a square mile.
+2. **We drive to each tile on real roads.** The computer finds the road route from your shop to the tile
+   and back again. We use the longer of the two trips.
+3. **We count the miles.** This is road miles, not a straight line on the map. Traffic is not counted.
+4. **The number is how far away it is.**
+   - **0** is the hub, the area closest to your shop.
+   - **1, 2, 3…** are rings that get further away. Each ring is the ring size you chose (for example 10 miles).
+5. **The letter is the main highway the van uses to get there.**
+   - Each highway gets its own letter, going clockwise around your shop: A, B, C…
+   - **L** means only small local roads, no big highway.
+   - Two letters, like **2AB**, means you go on highway A first, then turn onto road B.
+   - Very small highway areas are joined into their neighbour so you don't get tiny zones.
+6. **So "2A" means:** the second ring of distance, reached by highway A.
+
+**What the colours mean**
+- Each highway has its own colour. The colour gets **darker** the further away you go on that highway.
+- **Dark grey** in the middle is the hub.
+- **Light grey** means no road we can use (water, parks, or no map data). We don't serve it.
+- **Very pale** tiles are too far away, or no road reaches them.
+- **See-through (faint)** tiles are not sure. A person should check them.
+- **Black outline** means a small spot reached by a different highway than the tiles around it.
+- **Red pins** are addresses you checked.
+""")

@@ -47,20 +47,19 @@ def _button(at, label):
 def test_renders_every_tab_without_errors(app):
     at = app.run()
     assert not at.exception
-    assert [t.label for t in at.tabs] == ["Map", "Addresses", "Compare branches", "Failure report"]
+    assert [t.label for t in at.tabs] == ["Map", "Check an address", "Compare locations"]
 
 
 def test_recenter_button_resets_the_view(app):
     at = app.run()
-    _button(at, "Re-center").click().run()
+    _button(at, "Back to the shop").click().run()
     assert at.session_state["view_nonce"] == 1 and not at.exception
 
 
 def test_compare_lists_each_selected_branch(app):
     at = app.run()
     at.sidebar.multiselect[0].set_value([at.sidebar.multiselect[0].options[0]]).run()
-    summary = at.table[-1].value  # the compare tab's table renders last
-    assert len(summary) == 2 and not at.exception
+    assert len(at.get("deck_gl_json_chart")) == 3 and not at.exception  # main map + one per compared location
 
 
 def test_addresses_get_a_zone_per_branch_and_a_best_branch(app, monkeypatch):
@@ -75,7 +74,7 @@ def test_addresses_get_a_zone_per_branch_and_a_best_branch(app, monkeypatch):
     assert not at.exception
     results = at.session_state["addresses"][0]["results"]
     assert {r["miles"] for r in results.values()} == {12.0, 30.0}
-    best = [row for t in at.table for row in t.value.to_dict("records") if str(row.get("branch", "")).startswith("⭐")]
+    best = [row for t in at.table for row in t.value.to_dict("records") if str(row.get("location", "")).startswith("⭐")]
     assert len(best) == 1 and best[0]["road miles"] == "12.0"
 
 
@@ -89,7 +88,7 @@ def test_unparseable_line_reports_an_error(app, monkeypatch):
 
 def test_zone_highlight_lists_zones_in_order_and_renders(app):
     at = app.run()
-    pick = next(s for s in at.sidebar.selectbox if s.label == "Highlight a zone")
+    pick = next(s for s in at.sidebar.selectbox if s.label == "Look at one zone")
     assert pick.options == ["All zones", "0", "1A"]
     pick.set_value("1A").run()
     assert not at.exception
@@ -97,18 +96,19 @@ def test_zone_highlight_lists_zones_in_order_and_renders(app):
 
 def test_new_run_needs_a_highway_choice(app):
     at = app.run()
-    boxes = [c for c in at.sidebar.checkbox if "routes" in c.label or "Interstates" in c.label]
-    assert len(boxes) == 3 and not any(c.value for c in boxes)
-    next(b for b in at.sidebar.button if "Generate" in b.label).click().run()
+    boxes = [c for c in at.sidebar.checkbox if c.form_id == "new_run"]
+    assert len(boxes) == 3 and [c.value for c in boxes] == [True, False, False]  # Interstates ticked by default
+    boxes[0].uncheck()
+    next(b for b in at.sidebar.button if b.label == "Make zones").click().run()
     assert not at.exception and any("Tick at least one" in e.value for e in at.sidebar.error)
 
 
 def test_band_colours_run_green_to_red_and_band_view_renders(app):
     at = app.run()
-    next(r for r in at.sidebar.radio if r.label == "Colour by").set_value("Road-mile bands").run()
+    next(r for r in at.sidebar.radio if r.label == "What the colours show").set_value("Road-mile bands").run()
     assert not at.exception
-    legend = [m.value for m in at.markdown if "Band " in m.value]
-    assert "Band 1" in legend[1] and "(55, 65, 81)" in legend[0]
+    legend = [m.value for m in at.markdown if "Ring " in m.value]
+    assert "Ring 1" in legend[1] and "(55, 65, 81)" in legend[0]
     r1, g1, _ = eval(legend[1].split("rgb")[1].split("'")[0])
     r5, g5, _ = eval(legend[5].split("rgb")[1].split("'")[0])
     assert g1 > r1 and r5 > g5
