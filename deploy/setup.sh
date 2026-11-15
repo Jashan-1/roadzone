@@ -18,6 +18,13 @@ if ! swapon --show | grep -q .; then
   sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
   echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
 fi
+# one routing worker per CPU; more only adds memory pressure
+sed -i "s/^workers: .*/workers: $(nproc)/" configs/stevens_creek.yaml
+# Oracle's Ubuntu images ship an iptables REJECT rule; the cloud security list alone doesn't open the port
+if sudo iptables -S INPUT 2>/dev/null | grep -q REJECT && ! sudo iptables -C INPUT -p tcp --dport 8501 -j ACCEPT 2>/dev/null; then
+  sudo iptables -I INPUT -p tcp --dport 8501 -j ACCEPT
+  command -v netfilter-persistent >/dev/null && sudo netfilter-persistent save
+fi
 sudo tee /etc/systemd/system/roadzone.service >/dev/null <<UNIT
 [Unit]
 Description=RoadZone viewer
