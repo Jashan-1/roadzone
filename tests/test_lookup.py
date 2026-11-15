@@ -132,6 +132,7 @@ def test_remaking_a_run_keeps_its_base_and_name(tmp_path, monkeypatch):
                                  "min_corridor_cells": 0, "highways": ["US", "I"]})
     serve.JOBS.clear()
     assert code == 202 and job["name"] == "Stevens Creek" and started["name"] == "Stevens Creek"
+    assert job["kind"] == "remake"  # the New location dialog lists only "new" jobs
     cfg = yaml.safe_load(started["path"].read_text())
     assert cfg["base"] == {"lat": 37.3, "lon": -121.9} and cfg["coverage"]["limit_miles"] == 40
     assert cfg["highway_types"] == ["I", "US"] and cfg["min_corridor_cells"] == 0

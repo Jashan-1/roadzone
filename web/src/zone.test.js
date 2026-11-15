@@ -1,7 +1,7 @@
 // node --test src/zone.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bandEdges, bandColour, legend, verdict, spoken, viaZone, bandRange, bookingNote, sameSettings, corridorColour, shade, zoneColour, BAND_COLOURS } from './zone.js';
+import { bandEdges, bandColour, legend, verdict, spoken, viaZone, bandRange, bookingNote, sameSettings, roadName, corridorColour, shade, zoneColour, BAND_COLOURS } from './zone.js';
 
 const cov = { limit_miles: 50, hub_miles: 5, band_step_miles: 10 };
 
@@ -62,4 +62,10 @@ test('booking note is one pasteable line', () => {
   const r = { zone: '3CA', miles: 27.9, label: 'Oak Ridge Road, Los Gatos, Santa Clara County, California' };
   assert.equal(bookingNote('review', r), 'Zone 3CA (needs review) · 27.9 road mi · Oak Ridge Road, Los Gatos, Santa Clara County');
   assert.equal(bookingNote('out', { zone: null, miles: 63.8, label: 'Salinas' }), 'Outside service area · 63.8 road mi · Salinas');
+});
+
+test('corridor keys read as road names', () => {
+  assert.equal(roadName('CA 82 | E'), 'CA-82 east');
+  assert.equal(roadName('I 280 | N'), 'I-280 north');
+  assert.equal(roadName('-'), '-');
 });

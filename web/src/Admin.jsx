@@ -3,7 +3,7 @@ import { Icon } from './Icon.jsx';
 import { HIGHWAYS } from './zone.js';
 
 
-export default function Admin({ open, onClose, onMade }) {
+export default function Admin({ open, onClose, onMade, onBusy }) {
   const dlg = useRef(null);
   const [jobs, setJobs] = useState([]);
   const seen = useRef({});
@@ -29,22 +29,28 @@ export default function Admin({ open, onClose, onMade }) {
     return { ok: res.ok, body };
   };
 
-  // while open, keep the job list fresh; a job that just finished means a new location to pick
+  // only new-location jobs: started from this dialog, or still being made (remakes from Map settings belong there)
+  const mine = jobs.filter((j) => j.kind === 'new' && (j.job in seen.current || j.state === 'running'));
+  const running = mine.some((j) => j.state === 'running');
+  const making = mine.find((j) => j.state === 'running');
+  useEffect(() => onBusy(making ? `Making zones for ${making.name}…` : null), [making?.job]);
+
+  // while open or while a job runs (even after closing), keep the job list fresh; a finished job is a new location
   useEffect(() => {
-    if (!open) return;
+    if (!open && !running) return;
     let alive = true;
     const tick = async () => {
       const { ok, body } = await call('/api/jobs');
       if (!alive) return;
       if (!ok) return setError(body.error);
       if (body.some((j) => j.state === 'done' && seen.current[j.job] === 'running')) onMade();
-      seen.current = Object.fromEntries(body.map((j) => [j.job, j.state]));
+      for (const j of body) if (j.job in seen.current || (j.kind === 'new' && j.state === 'running')) seen.current[j.job] = j.state;
       setJobs(body);
     };
     tick();
     const id = setInterval(tick, 5000);
     return () => { alive = false; clearInterval(id); };
-  }, [open]);
+  }, [open, running]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -63,8 +69,6 @@ export default function Admin({ open, onClose, onMade }) {
   };
 
   const toggle = (code) => setForm({ ...form, highways: form.highways.includes(code) ? form.highways.filter((h) => h !== code) : [...form.highways, code] });
-  const running = jobs.some((j) => j.state === 'running');
-
   return (
     <dialog ref={dlg} onClose={onClose} aria-labelledby="admin-title">
       <form onSubmit={submit}>
@@ -115,9 +119,9 @@ export default function Admin({ open, onClose, onMade }) {
             <div className="ends"><span>Keep every zone</span><span>Fewer, larger zones</span></div>
           </div>
 
-          {jobs.length > 0 && (
+          {mine.length > 0 && (
             <ul className="jobs" aria-live="polite">
-              {jobs.map((j) => (
+              {mine.map((j) => (
                 <li key={j.job}>
                   <div><span>{j.name}</span>{j.error && <pre>{j.error}</pre>}</div>
                   <span>{{ running: 'Making zones…', done: 'Ready in the location list', failed: 'Failed' }[j.state]}</span>

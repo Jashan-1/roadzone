@@ -38,6 +38,15 @@ export function zoneColour(p, mode, ids, lastBand) {
   return p.corridor === 'HUB' ? base : shade(base, p.band);
 }
 
+const DIRS = { N: 'north', S: 'south', E: 'east', W: 'west' };
+
+/** 'CA 82 | E' -> 'CA-82 east', as zonegen.lookup.road_name; '-' or empty stays as-is. */
+export function roadName(key) {
+  if (!key || key === '-') return key || '';
+  const [road, ...rest] = String(key).split('|').map((p) => p.trim());
+  return [road.replace(/^(I|US|CA|SR) (\S+)/, '$1-$2'), ...rest.map((p) => DIRS[p] ?? p)].join(' ').trim();
+}
+
 /** Same zone settings mix (highway order ignored), as app.py's run_key. */
 export function sameSettings(a, b) {
   const hw = (x) => [...(x.highways || [])].sort().join(',');

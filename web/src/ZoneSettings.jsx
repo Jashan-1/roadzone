@@ -5,13 +5,15 @@ const pick = (v) => ({ limit_miles: v.limit_miles, hub_miles: v.hub_miles, band_
   highways: v.highways, min_corridor_cells: v.min_corridor_cells });
 
 /** The run's settings, editable. A mix this shop already has is shown at once; a new mix is made on request. */
-export default function ZoneSettings({ shop, variant, onPick, onMade }) {
+export default function ZoneSettings({ shop, variant, onPick, onMade, onBusy }) {
   const [draft, setDraft] = useState(pick(variant));
   const [job, setJob] = useState(null);
   const [error, setError] = useState('');
   const timer = useRef(null);
+  const wentFar = useRef(false);
+  useEffect(() => onBusy(job ? (wentFar.current ? 'Driving the new, further roads…' : 'Making zones…') : null), [job]);
   useEffect(() => setDraft(pick(variant)), [variant.run]);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => () => { clearTimeout(timer.current); onBusy(null); }, []); // never leave the map spinner stuck
 
   const num = { limit_miles: +draft.limit_miles, hub_miles: +draft.hub_miles, band_step_miles: +draft.band_step_miles,
     highways: draft.highways, min_corridor_cells: +draft.min_corridor_cells };
@@ -43,6 +45,7 @@ export default function ZoneSettings({ shop, variant, onPick, onMade }) {
       body: JSON.stringify({ from_run: variant.run, ...num }) }).catch(() => null);
     const body = await res?.json().catch(() => ({})) ?? { error: 'Can’t reach the RoadZone server.' };
     if (!res?.ok) return setError(body.error || `Server error ${res.status}`);
+    wentFar.current = num.limit_miles > variant.limit_miles;
     setJob(body.job);
     watch(body.job);
   };

@@ -1,6 +1,5 @@
 // One stroke icon set, drawn to match the design comps.
 const PATHS = {
-  logo: <><circle cx="6" cy="18" r="2.2" /><rect x="15.8" y="3.8" width="4.4" height="4.4" /><path d="M7.8 16.5C11 14 9 10 13 8.5L15.5 7" /></>,
   sliders: <><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></>,
   close: <path d="m6 6 12 12M18 6 6 18" />,
   arrow: <path d="M5 12h14M13 6l6 6-6 6" />,

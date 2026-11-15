@@ -5,6 +5,16 @@ import { Icon } from './Icon.jsx';
 
 // OpenFreeMap: free vector tiles, no key, commercial use allowed
 const STYLE = { light: 'https://tiles.openfreemap.org/styles/positron', dark: 'https://tiles.openfreemap.org/styles/dark' };
+const stacked = window.matchMedia('(min-width: 601px) and (max-width: 900px)'); // tablet: panel above map, page scrolls
+const phone = window.matchMedia('(max-width: 600px)'); // full-screen map under floating controls and a bottom sheet
+
+/** Keep fitted areas clear of what floats over the map (phone: top controls and the bottom sheet). */
+function pad(base) {
+  if (!phone.matches) return base;
+  const sheet = document.querySelector('.panel')?.getBoundingClientRect().height ?? 200;
+  return { top: 200, bottom: Math.min(sheet, window.innerHeight * 0.6) + 24, left: 32, right: 80 };
+}
+
 function bounds(fc, extra = []) {
   const b = new maplibregl.LngLatBounds();
   for (const f of fc?.features ?? []) {
@@ -30,7 +40,7 @@ function zoneCard(p, coverage) {
   return el;
 }
 
-export default function ZoneMap({ zones, name, point, highlight, focus, opacity, theme, colourBy, onColourBy, onHelp }) {
+export default function ZoneMap({ busy, zones, name, point, highlight, focus, opacity, theme, colourBy, onColourBy, onHelp }) {
   const box = useRef(null);
   const map = useRef(null);
   const marks = useRef({});
@@ -40,10 +50,17 @@ export default function ZoneMap({ zones, name, point, highlight, focus, opacity,
   const scheme = theme;
   const [ready, setReady] = useState(0);
   const [full, setFull] = useState(false);
-  const [key, setKey] = useState(() => { try { return localStorage.getItem('rz-legend') !== 'closed'; } catch { return true; } });
+  // the key starts tucked away on phones, where it would cover most of the map; a choice made before is kept
+  const [key, setKey] = useState(() => {
+    let saved = null;
+    try { saved = localStorage.getItem('rz-legend'); } catch { /* private mode */ }
+    return saved ? saved === 'open' : !window.matchMedia('(max-width: 600px)').matches;
+  });
   const showKey = (v) => { setKey(v); try { localStorage.setItem('rz-legend', v ? 'open' : 'closed'); } catch { /* private mode */ } };
   useEffect(() => {
     map.current?.resize();
+    const coop = map.current?.cooperativeGestures;
+    if (coop) full || !stacked.matches ? coop.disable() : coop.enable(); // full screen: the map owns every gesture
     if (!full) return;
     const esc = (e) => e.key === 'Escape' && setFull(false);
     window.addEventListener('keydown', esc);
@@ -57,9 +74,13 @@ export default function ZoneMap({ zones, name, point, highlight, focus, opacity,
   useEffect(() => {
     const m = new maplibregl.Map({ container: box.current, style: STYLE[theme], center: [-121.97, 37.32], zoom: 8,
       attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false,
-      fadeDuration: 120 }); // labels that swap places while moving fade quickly instead of blinking
+      fadeDuration: 120, // labels that swap places while moving fade quickly instead of blinking
+      // stacked layout: the page scrolls past the map, so one finger scrolls the page and two move the map
+      cooperativeGestures: stacked.matches });
     m.touchZoomRotate.disableRotation();
     m.on('style.load', () => setReady((n) => n + 1)); // re-add our layers after every style swap
+    // map credits start as the small (i) button, not a wide strip over the map key; tapping it still shows them
+    m.once('load', () => box.current?.querySelector('.maplibregl-compact-show')?.classList.remove('maplibregl-compact-show'));
     // click a zone: what it is, in words
     const popup = new maplibregl.Popup({ closeButton: false, maxWidth: '260px', offset: 6 });
     m.on('click', 'zones-fill', (e) => {
@@ -111,7 +132,7 @@ export default function ZoneMap({ zones, name, point, highlight, focus, opacity,
   }, [ready, zones, last, scheme, colourBy]);
 
   useEffect(() => {
-    if (zones) map.current.fitBounds(bounds(zones), { padding: 40, duration: 0 });
+    if (zones) map.current.fitBounds(bounds(zones), { padding: pad(40), duration: 0 });
   }, [zones]);
 
   useEffect(() => {
@@ -129,7 +150,7 @@ export default function ZoneMap({ zones, name, point, highlight, focus, opacity,
   useEffect(() => {
     if (!zones) return;
     const one = focus ? { ...zones, base: null, features: zones.features.filter((f) => f.properties.zone === focus) } : null;
-    map.current.fitBounds(bounds(one?.features.length ? one : zones), { padding: 60, maxZoom: 12, duration: 500 });
+    map.current.fitBounds(bounds(one?.features.length ? one : zones), { padding: pad(60), maxZoom: 12, duration: 500 });
   }, [focus]);
 
   useEffect(() => {
@@ -145,17 +166,22 @@ export default function ZoneMap({ zones, name, point, highlight, focus, opacity,
     };
     place('dealer', zones?.base, 'pin-dealer', `${name} dealership`);
     place('customer', point, 'pin-customer', 'Customer address');
-    if (point && zones) map.current.fitBounds(bounds({ base: zones.base }, [point]), { padding: 90, maxZoom: 13, duration: 600 });
+    if (point && zones) map.current.fitBounds(bounds({ base: zones.base }, [point]), { padding: pad(90), maxZoom: 13, duration: 600 });
   }, [zones, point, name]);
 
-  const recenter = () => zones && map.current.fitBounds(bounds(zones), { padding: 40, duration: 500 });
+  const recenter = () => zones && map.current.fitBounds(bounds(zones), { padding: pad(40), duration: 500 });
   // ring-by-ring swatch for one corridor: the same hue getting darker further out
   const ramp = (id) => `linear-gradient(90deg, ${rings.slice(1).map((r) => shade(corridorColour(id, ids), r.band)).join(', ') || corridorColour(id, ids)})`;
 
   return (
     <section className={full ? 'map full' : 'map'} aria-label={`Zone map for ${name}`}>
       <div ref={box} className="map-canvas" />
-      {!zones && <div className="map-empty">Loading zones…</div>}
+      {!zones && (
+        <div className="map-loading" role="status"><span className="spinner" aria-hidden="true" /><span>Loading zones…</span></div>
+      )}
+      {zones && busy && (
+        <div className="map-busy" role="status"><span className="spinner" aria-hidden="true" /><span>{busy}</span></div>
+      )}
       <div className="map-pill"><span className="dot" /><strong className="ell">{name}</strong></div>
       <div className="map-tools">
         <div className="zoom">

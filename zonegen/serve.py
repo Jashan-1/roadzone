@@ -234,7 +234,7 @@ def start_run(body: dict) -> tuple[int, dict]:
     path = write_custom_config(cfg)
     jid = uuid.uuid4().hex[:12]
     JOBS[jid] = {"job": jid, "name": name or f"{point[0]:.4f}, {point[1]:.4f}", "state": "running",
-                 "started": time.time()}
+                 "kind": "remake" if src else "new", "started": time.time()}
     threading.Thread(target=_job, args=(jid, path, name), daemon=True).start()
     return 202, JOBS[jid]
 

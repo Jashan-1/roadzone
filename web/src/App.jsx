@@ -4,7 +4,7 @@ import Admin from './Admin.jsx';
 import ZoneSettings from './ZoneSettings.jsx';
 import HowItWorks from './HowItWorks.jsx';
 import { Icon } from './Icon.jsx';
-import { bandRange, bookingNote, reviewNote, script, shortPlace, spoken, verdict, viaZone } from './zone.js';
+import { roadName, bandRange, bookingNote, reviewNote, script, shortPlace, spoken, verdict, viaZone } from './zone.js';
 
 const TITLES = { in: 'In service area', review: 'Needs a double-check', out: 'Outside service area' };
 const SHORT = { in: 'In area', review: 'Double-check', out: 'Out of area' };
@@ -41,9 +41,46 @@ export default function App() {
   const [admin, setAdmin] = useState(false);
   const [help, setHelp] = useState(false);
   const [about, setAbout] = useState(false);
+  const [making, setMaking] = useState({}); // who is making zones right now -> message for the map
   const [loadError, setLoadError] = useState('');
   const pending = useRef(null);
   const input = useRef(null);
+
+  // phone: the panel is a bottom sheet you pull up (or tap the handle) instead of opening dropdowns
+  const phoneQuery = window.matchMedia('(max-width: 600px)');
+  const [phone, setPhone] = useState(phoneQuery.matches);
+  useEffect(() => {
+    const on = (e) => setPhone(e.matches);
+    phoneQuery.addEventListener('change', on);
+    return () => phoneQuery.removeEventListener('change', on);
+  }, []);
+  const [sheetAt, setSheetAt] = useState('peek'); // phone sheet rests at 'down' (handle only), 'peek' or 'up'
+  const LEVELS = ['down', 'peek', 'up'];
+  const sheet = useRef(null);
+  const drag = useRef(null);
+  const onHandleDown = (e) => {
+    drag.current = { y: e.clientY, h: sheet.current.getBoundingClientRect().height, moved: false };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onHandleMove = (e) => {
+    const d = drag.current;
+    if (!d) return;
+    const dy = d.y - e.clientY;
+    if (Math.abs(dy) > 6) d.moved = true;
+    if (d.moved) { sheet.current.style.transition = 'none'; sheet.current.style.maxHeight = `${Math.max(120, Math.min(window.innerHeight - 140, d.h + dy))}px`; }
+  };
+  const onHandleUp = (e) => {
+    const d = drag.current;
+    drag.current = null;
+    if (!d) return;
+    sheet.current.style.transition = '';
+    sheet.current.style.maxHeight = '';
+    // a tap steps up (and from the top back to peek); a drag moves one level the way it was pulled, two if pulled far
+    const i = LEVELS.indexOf(sheetAt), dy = d.y - e.clientY;
+    const steps = Math.abs(dy) > window.innerHeight * 0.35 ? 2 : 1;
+    const next = !d.moved ? (sheetAt === 'up' ? 1 : i + 1) : Math.max(0, Math.min(2, i + Math.sign(dy) * steps));
+    setSheetAt(LEVELS[next]);
+  };
 
   // `prefer`: a run just made; otherwise keep the current run if it still exists
   const refreshLocations = (prefer) => getJSON('/api/locations').then((l) => {
@@ -113,6 +150,8 @@ export default function App() {
     }).catch(() => {});
   };
 
+  useEffect(() => { if (state.status !== 'idle') setSheetAt((at) => (at === 'down' ? 'peek' : at)); }, [state.status]);
+
   const codes = useMemo(() => (zones ? zones.features.map((f) => f.properties.zone).sort(zoneSort) : []), [zones]);
   const recent = history.filter((h) => (h.shop ? h.shop === loc?.name : h.run === run));
   const { status, r, v } = state;
@@ -121,7 +160,7 @@ export default function App() {
     ['Road miles', r.miles ?? '—'],
     ...(v === 'out' ? [['Our limit', `${limit} road mi`]] : [
       ['Band', r.band != null ? [r.band === 0 ? 'Hub' : r.band, bandRange(r.band, loc ?? zones?.coverage ?? {})].filter(Boolean).join(' · ') : '—'],
-      ['Corridor', r.corridor && r.corridor !== '-' ? r.corridor : '—'],
+      ['Corridor', r.corridor && r.corridor !== '-' ? roadName(r.corridor) : '—'],
       ...(viaZone(r.zone) ? [['Via zone', viaZone(r.zone)]] : []),
     ]),
   ];
@@ -130,7 +169,7 @@ export default function App() {
     <>
       <header className="top">
         <div className="brand">
-          <span className="brand-mark" style={{ color: '#000000' }}><Icon name="logo" size={20} width={2.4} /></span>
+          <img className="brand-mark" src="/logo.svg" width="34" height="34" alt="" />
           <span className="brand-name">RoadZone</span>
           <span className="brand-sub">Service desk</span>
         </div>
@@ -150,7 +189,13 @@ export default function App() {
       </header>
 
       <main>
-        <section className="panel" aria-label="Address check">
+        <section ref={sheet} className={`panel ${sheetAt}`} aria-label="Address check">
+          {phone && (
+            <button type="button" className="sheet-handle" aria-label={sheetAt === 'up' ? 'Show less' : 'Show more'} aria-expanded={sheetAt === 'up'}
+              onPointerDown={onHandleDown} onPointerMove={onHandleMove} onPointerUp={onHandleUp} onPointerCancel={onHandleUp}>
+              <span />
+            </button>
+          )}
           <div>
             <p className="area">{loc ? `${loc.name} · ${loc.limit_miles} road-mile service area` : ' '}</p>
             <h1>Which zone is an address in?</h1>
@@ -175,7 +220,7 @@ export default function App() {
                 </button>
               </div>
               <div className="query">
-                <input id="q" ref={input} type="text" value={query} autoComplete="off" autoFocus maxLength={300}
+                <input id="q" ref={input} type="text" value={query} autoComplete="off" autoFocus maxLength={300} enterKeyHint="go"
                   placeholder="37.4419, -122.1430" aria-describedby="q-help" onChange={(e) => setQuery(e.target.value)} />
                 {query && <button type="button" className="round" aria-label="Clear" onClick={reset}><Icon name="close" size={14} width={2.8} /></button>}
               </div>
@@ -264,10 +309,11 @@ export default function App() {
             </div>
           )}
 
-          <details>
-            <summary>Map settings <Icon name="chevron" width={2} /></summary>
+          {/* phone: always open, its summary is just a heading; pulling the sheet up shows it */}
+          <details open={phone || undefined}>
+            <summary onClick={(e) => phone && e.preventDefault()}>Map settings <Icon name="chevron" width={2} /></summary>
             <div className="settings">
-              {shop && <ZoneSettings shop={shop} variant={variant} onPick={setRun} onMade={refreshLocations} />}
+              {shop && <ZoneSettings shop={shop} variant={variant} onPick={setRun} onMade={refreshLocations} onBusy={(m) => setMaking((x) => ({ ...x, settings: m }))} />}
               <div className="field">
                 <label htmlFor="focus">Show</label>
                 <select id="focus" value={focus} onChange={(e) => setFocus(e.target.value)}>
@@ -283,13 +329,13 @@ export default function App() {
           </details>
         </section>
 
-        <ZoneMap onHelp={() => setAbout(true)} colourBy={colourBy} onColourBy={pickColour} zones={zones} name={loc?.name ?? 'RoadZone'} opacity={opacity} focus={focus} theme={theme}
+        <ZoneMap busy={making.settings || making.admin || (status === 'loading' ? 'Checking the address…' : '')} onHelp={() => setAbout(true)} colourBy={colourBy} onColourBy={pickColour} zones={zones} name={loc?.name ?? 'RoadZone'} opacity={opacity} focus={focus} theme={theme}
           point={status === 'done' && r.lon != null ? [r.lon, r.lat] : null}
           highlight={status === 'done' ? r.zone : ''} />
       </main>
 
       <HowItWorks open={about} onClose={() => setAbout(false)} loc={loc} />
-      <Admin open={admin} onClose={() => setAdmin(false)} onMade={refreshLocations} />
+      <Admin open={admin} onClose={() => setAdmin(false)} onMade={refreshLocations} onBusy={(m) => setMaking((x) => ({ ...x, admin: m }))} />
     </>
   );
 }
