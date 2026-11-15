@@ -392,14 +392,7 @@ def deck(cells: list[dict], base: list[float], run: str, zoom: float = 8.5) -> p
                     initial_view_state=pdk.ViewState(latitude=base[1], longitude=base[0], zoom=zoom))
 
 
-DIRS = {"N": "north", "S": "south", "E": "east", "W": "west"}
-
-
-def road_name(key) -> str:
-    """'I 15 | N' -> 'I-15 north': the legend is read by dealers, not engineers."""
-    parts = [p.strip() for p in str(key).split("|")]
-    road = re.sub(r"^(I|US|CA|SR) (\S+)", r"\1-\2", parts[0])
-    return " ".join([road, *(DIRS.get(p, p) for p in parts[1:])]).strip()
+road_name = lookup.road_name
 
 
 tab_map, tab_addr, tab_cmp = st.tabs(["Map", "Check an address", "Compare locations"])

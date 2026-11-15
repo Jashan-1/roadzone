@@ -71,6 +71,11 @@ h2 { margin: 0 0 4px; font-size: 17px; font-weight: 700; }
 .query input { flex-grow: 1; font-size: 17px; font-weight: 600; background: transparent; border: 0; padding: 0; height: 52px; min-width: 0; }
 .query input::placeholder { color: var(--sub); font-weight: 500; }
 .query .round { width: 36px; height: 36px; background: var(--field); }
+.label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.label-row label { font-size: 14px; color: var(--sub); }
+.info { width: 32px; height: 32px; margin: -6px -6px -6px 0; border: 0; border-radius: 16px; background: transparent; color: var(--sub); display: flex; align-items: center; justify-content: center; }
+.info:hover, .info[aria-expanded="true"] { color: var(--text); background: var(--field); }
+.help[hidden] { display: none; }
 .help { margin: 0; font-size: 13px; line-height: 1.45; color: var(--sub); }
 .go { font-size: 17px; font-weight: 600; border: 0; border-radius: 10px; height: 56px; display: flex; align-items: center; justify-content: center; gap: 10px; background: var(--btn-bg); color: var(--btn-fg); transition: opacity 0.2s; }
 .go:disabled { background: var(--field); color: var(--sub); }
@@ -201,3 +206,72 @@ legend span { font-weight: 400; color: var(--sub); }
 .jobs li { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; background: var(--field); border-radius: 10px; padding: 10px 12px; }
 .jobs li span:last-child { color: var(--sub); }
 .jobs pre { margin: 6px 0 0; font-size: 12px; white-space: pre-wrap; color: var(--sub); max-height: 120px; overflow: auto; }
+
+/* desktop: the page fits the window; the panel scrolls on its own so it never runs below the map */
+@media (min-width: 901px) {
+  main { flex-wrap: nowrap; height: calc(100vh - 64px); height: calc(100dvh - 64px); }
+  .panel { overflow-y: auto; overscroll-behavior: contain; margin: -4px; padding: 4px 12px 24px 4px; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+  .map { flex: 1 1 auto; align-self: stretch; height: auto; position: relative; top: 0; }
+}
+
+/* full-screen map */
+.map.full { position: fixed; inset: 0; z-index: 40; width: 100vw; height: 100vh; height: 100dvh; border-radius: 0; }
+.legend-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.legend-head .link { border: 0; background: transparent; padding: 4px 0; font-size: 12px; font-weight: 600; color: var(--sub); text-decoration: underline; text-underline-offset: 3px; }
+.legend-head .link:hover { color: var(--text); }
+.legend-title { font-size: 13px; }
+.seg { display: inline-flex; background: var(--field); border-radius: 9px; padding: 2px; }
+.seg button { border: 0; background: transparent; border-radius: 7px; height: 30px; padding: 0 12px; font-size: 13px; font-weight: 600; color: var(--sub); }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+.corridors { list-style: none; margin: 0; padding: 0 4px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; max-height: 168px; overflow-y: auto; scrollbar-width: thin; }
+.corridors li { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12px; }
+.corridors i { width: 26px; height: 12px; border-radius: 4px; flex-shrink: 0; }
+.corridors b { min-width: 22px; font-size: 13px; }
+.corridors span { color: var(--sub); min-width: 0; }
+.legend-note { margin: 0; font-size: 11px; color: var(--sub); line-height: 1.4; }
+.legend { width: 400px; }
+.zone-pop { display: flex; flex-direction: column; gap: 2px; font: 13px/1.4 Inter, system-ui, sans-serif; color: var(--text); }
+.zone-pop strong { font-family: var(--display); font-size: 18px; font-weight: 800; }
+.zone-pop span { color: var(--sub); }
+.maplibregl-popup-content { background: var(--card); border-radius: 12px; box-shadow: var(--pop); padding: 10px 14px; }
+.maplibregl-popup-tip { border-top-color: var(--card) !important; border-bottom-color: var(--card) !important; }
+
+/* zone settings inside Map settings */
+.settings fieldset legend { font-size: 14px; }
+.settings .chip { font-size: 14px; height: 40px; padding: 0 12px; }
+.settings .grid3 .field label { font-size: 13px; }
+.remake { display: flex; flex-direction: column; gap: 8px; background: var(--field); border-radius: 12px; padding: 14px; }
+.remake p { margin: 0; font-size: 14px; }
+.remake .go { height: 48px; font-size: 16px; }
+.remake .plain { border: 0; background: transparent; height: 40px; font-weight: 600; color: var(--sub); }
+
+/* how it works */
+dialog.how { width: min(640px, calc(100vw - 32px)); }
+.prose { gap: 22px; }
+.prose h3 { margin: 0 0 6px; font-size: 16px; font-weight: 700; }
+.prose p, .prose li { margin: 0; font-size: 15px; line-height: 1.55; color: var(--text); max-width: 68ch; }
+.prose p + p, .prose p + ul, .prose ul + p, .prose .how-scale + p { margin-top: 8px; }
+.prose ul { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.how-scale { display: flex; gap: 4px; margin-top: 10px; }
+.how-scale div { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.how-scale i { height: 8px; border-radius: 4px; }
+.how-scale b { font-size: 12px; }
+.how-scale span { font-size: 11px; color: var(--sub); }
+dialog .dlg-body { overflow: auto; }
+
+/* recent checks: clear all, or remove one */
+.list-head { display: flex; align-items: baseline; justify-content: space-between; }
+.link { border: 0; background: transparent; padding: 6px 0; font-size: 13px; font-weight: 600; color: var(--sub); text-decoration: underline; text-underline-offset: 3px; }
+.link:hover { color: var(--text); }
+.row-wrap { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.row-wrap .row { border-bottom: 0; flex: 1 1 auto; min-width: 0; }
+.row-wrap .row-code { background: var(--tone-bg); color: var(--tone); }
+.row-x { width: 36px; height: 36px; flex-shrink: 0; border: 0; border-radius: 18px; background: transparent; color: var(--sub); display: flex; align-items: center; justify-content: center; }
+.row-x:hover { background: var(--field); color: var(--text); }
+
+/* map key: tuck it away so it never hides zones underneath */
+.legend-tools { display: flex; align-items: center; gap: 6px; }
+.legend-hide { width: 32px; height: 32px; border: 0; border-radius: 16px; background: transparent; color: var(--sub); display: flex; align-items: center; justify-content: center; margin-right: -6px; }
+.legend-hide:hover { background: var(--field); color: var(--text); }
+.legend-open { position: absolute; left: 16px; bottom: 16px; display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px 0 10px; border: 0; border-radius: 999px; background: var(--map-card); box-shadow: var(--pop); font-size: 14px; font-weight: 600; }
+.legend-open svg { transform: rotate(180deg); }

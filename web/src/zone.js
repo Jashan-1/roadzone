@@ -1,9 +1,49 @@
 // Pure helpers that turn a /zone answer and a run's coverage into what the advisor sees and says.
 
+export const HIGHWAYS = [['I', 'Interstate (I)'], ['US', 'US routes'], ['CA', 'State routes (CA)']];
+
 export const BAND_COLOURS = ['#2E9A57', '#8CC96E', '#E6D36A', '#F0A64C', '#E4704A', '#C8403A'];
 
 const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten',
   'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+
+// one clearly different hue per highway corridor; Hub and local roads keep the neutral colours Streamlit uses
+const CORRIDOR_COLOURS = ['#3B7DD8', '#E8833A', '#3FA34D', '#D9445A', '#8E5CC9', '#1FA9A3', '#C9A227', '#D45FA8',
+  '#6B8E23', '#8C6D4F', '#4BA3E3', '#B5533C'];
+const HUB_COLOUR = '#52525B';
+const LOCAL_COLOUR = '#C2A878';
+
+/** Colour for a corridor id, by its place in the run's sorted corridor list (stable for a run). */
+export function corridorColour(id, ids) {
+  if (id === 'HUB') return HUB_COLOUR;
+  if (id === 'L') return LOCAL_COLOUR;
+  const named = ids.filter((x) => x !== 'HUB' && x !== 'L');
+  const i = Math.max(0, named.indexOf(id));
+  if (i < CORRIDOR_COLOURS.length) return CORRIDOR_COLOURS[i];
+  return `hsl(${Math.round((i * 137.508) % 360)} 55% ${i % 2 ? 42 : 56}%)`; // golden-angle steps past the palette
+}
+
+/** Same hue, darker for each ring further out (ring 1 unchanged): 1A, 2A, 3A read as one highway. */
+export function shade(hex, band) {
+  if (!hex.startsWith('#') || !band || band <= 1) return hex;
+  const f = Math.max(0.45, 1 - 0.16 * (band - 1));
+  const c = [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * f));
+  return `#${c.map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+}
+
+/** Fill colour for one zone: by highway (default) or by distance ring. */
+export function zoneColour(p, mode, ids, lastBand) {
+  if (mode === 'distance') return bandColour(p.band, lastBand);
+  const base = corridorColour(p.corridor, ids);
+  return p.corridor === 'HUB' ? base : shade(base, p.band);
+}
+
+/** Same zone settings mix (highway order ignored), as app.py's run_key. */
+export function sameSettings(a, b) {
+  const hw = (x) => [...(x.highways || [])].sort().join(',');
+  return ['limit_miles', 'hub_miles', 'band_step_miles', 'min_corridor_cells'].every((k) => Number(a[k]) === Number(b[k]))
+    && hw(a) === hw(b);
+}
 
 /** [0, hub, hub+step, ..., limit]: the same edges zonegen.classify.band_edges uses. */
 export function bandEdges({ hub_miles: hub, band_step_miles: step, limit_miles: limit }) {

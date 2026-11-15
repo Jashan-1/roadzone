@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon.jsx';
+import { HIGHWAYS } from './zone.js';
 
-const HIGHWAYS = [['I', 'Interstate (I)'], ['US', 'US routes'], ['CA', 'State routes (CA)']];
 
 export default function Admin({ open, onClose, onMade }) {
   const dlg = useRef(null);

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ZoneMap from './ZoneMap.jsx';
 import Admin from './Admin.jsx';
+import ZoneSettings from './ZoneSettings.jsx';
+import HowItWorks from './HowItWorks.jsx';
 import { Icon } from './Icon.jsx';
 import { bandRange, bookingNote, reviewNote, script, shortPlace, spoken, verdict, viaZone } from './zone.js';
 
@@ -31,22 +33,30 @@ export default function App() {
   const [copied, setCopied] = useState('');
   const [focus, setFocus] = useState('');
   const [opacity, setOpacity] = useState(70); // Streamlit's default colour strength
+  const [colourBy, setColourBy] = useState(read('rz-colour', 'zones'));
+  const pickColour = (c) => { setColourBy(c); write('rz-colour', c); };
   const [theme, setTheme] = useState(read('rz-theme', null) ?? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   const flipTheme = () => setTheme((t) => { const next = t === 'dark' ? 'light' : 'dark'; write('rz-theme', next); return next; });
   const [admin, setAdmin] = useState(false);
+  const [help, setHelp] = useState(false);
+  const [about, setAbout] = useState(false);
   const [loadError, setLoadError] = useState('');
   const pending = useRef(null);
   const input = useRef(null);
 
-  const refreshLocations = () => getJSON('/api/locations').then((l) => {
+  // `prefer`: a run just made; otherwise keep the current run if it still exists
+  const refreshLocations = (prefer) => getJSON('/api/locations').then((l) => {
     setLocations(l);
     setLoadError('');
-    setRun((r) => (l.some((x) => x.run === r) ? r : l.at(-1)?.run ?? ''));
+    const has = (r) => l.some((s) => s.variants.some((v) => v.run === r));
+    setRun((r) => (prefer && has(prefer) ? prefer : has(r) ? r : l.at(-1)?.run ?? ''));
   }).catch((e) => setLoadError(e.message));
   useEffect(() => { refreshLocations(); }, []);
 
-  const loc = locations?.find((l) => l.run === run);
+  const shop = locations?.find((s) => s.variants.some((x) => x.run === run));
+  const variant = shop?.variants.find((x) => x.run === run);
+  const loc = shop && { ...variant, name: shop.name };
   useEffect(() => {
     if (!run) return;
     write('rz-run', run);
@@ -78,9 +88,9 @@ export default function App() {
       const v = verdict(r);
       setState({ status: 'done', r, v });
       const place = shortPlace(r.label) || q;
-      const entry = { q, run, v, code: r.zone || '—', title: place.split(',')[0], sub: [SHORT[v], ...place.split(',').slice(1)].join(' · ') };
+      const entry = { q, run, shop: loc?.name, v, code: r.zone || '—', title: place.split(',')[0], sub: [SHORT[v], ...place.split(',').slice(1)].join(' · ') };
       setHistory((h) => {
-        const next = [entry, ...h.filter((x) => !(x.q === q && x.run === run))].slice(0, 5);
+        const next = [entry, ...h.filter((x) => !(x.q === q && (x.shop ?? x.run) === (loc?.name ?? run)))].slice(0, 5);
         write('rz-history', next);
         return next;
       });
@@ -88,6 +98,13 @@ export default function App() {
       if (e.name !== 'AbortError') setState({ status: 'error', message: e.message });
     }
   };
+
+  // removes these entries from this browser's history (only ever stored here, never on the server)
+  const forget = (items) => setHistory((h) => {
+    const next = h.filter((x) => !items.includes(x));
+    write('rz-history', next);
+    return next;
+  });
 
   const copy = (text, key) => {
     navigator.clipboard?.writeText(text).then(() => {
@@ -97,7 +114,7 @@ export default function App() {
   };
 
   const codes = useMemo(() => (zones ? zones.features.map((f) => f.properties.zone).sort(zoneSort) : []), [zones]);
-  const recent = history.filter((h) => h.run === run);
+  const recent = history.filter((h) => (h.shop ? h.shop === loc?.name : h.run === run));
   const { status, r, v } = state;
   const limit = loc?.limit_miles ?? 50;
   const facts = r && [
@@ -120,10 +137,12 @@ export default function App() {
         <label htmlFor="loc" className="sr">Location</label>
         <div className="loc">
           <span className="dot" />
-          <select id="loc" className="ell" value={run} onChange={(e) => { setRun(e.target.value); reset(); }} disabled={!locations?.length}>
-            {(locations ?? []).map((l) => <option key={l.run} value={l.run}>{l.name}</option>)}
+          <select id="loc" className="ell" value={shop?.name ?? ''} disabled={!locations?.length}
+            onChange={(e) => { setRun(locations.find((s) => s.name === e.target.value).run); reset(); }}>
+            {(locations ?? []).map((s) => <option key={s.name} value={s.name}>{s.name}</option>)}
           </select>
         </div>
+        <button type="button" className="round" aria-label="How RoadZone works" onClick={() => setAbout(true)}><Icon name="help" size={20} width={2} /></button>
         <button type="button" className="round" aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} onClick={flipTheme}>
           <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} width={2} />
         </button>
@@ -149,13 +168,18 @@ export default function App() {
 
           <form className="search" onSubmit={(e) => { e.preventDefault(); check(query); }}>
             <div className="field">
-              <label htmlFor="q">Address or coordinates</label>
+              <div className="label-row">
+                <label htmlFor="q">Address or coordinates</label>
+                <button type="button" className="info" aria-label="What can I type here?" aria-expanded={help} aria-controls="q-help" onClick={() => setHelp(!help)}>
+                  <Icon name="info" size={16} width={2} />
+                </button>
+              </div>
               <div className="query">
                 <input id="q" ref={input} type="text" value={query} autoComplete="off" autoFocus maxLength={300}
                   placeholder="37.4419, -122.1430" aria-describedby="q-help" onChange={(e) => setQuery(e.target.value)} />
                 {query && <button type="button" className="round" aria-label="Clear" onClick={reset}><Icon name="close" size={14} width={2.8} /></button>}
               </div>
-              <p id="q-help" className="help">Paste coordinates from Google Maps (e.g. 37.3230, -121.9700) or type an address. Typed addresses are looked up on OpenStreetMap, an outside website; coordinates stay here.</p>
+              <p id="q-help" className="help" hidden={!help}>Paste coordinates from Google Maps (e.g. 37.3230, -121.9700) or type an address. Typed addresses are looked up on OpenStreetMap, an outside website; coordinates stay here.</p>
             </div>
             <button type="submit" className="go" disabled={!query.trim() || !run || status === 'loading'}>
               Check <Icon name="arrow" width={2.4} />
@@ -221,13 +245,21 @@ export default function App() {
 
           {status !== 'loading' && recent.length > 0 && (
             <div className="list">
-              <h2>Recent checks</h2>
+              <div className="list-head">
+                <h2>Recent checks</h2>
+                <button type="button" className="link" onClick={() => forget(recent)}>Clear</button>
+              </div>
               {recent.map((h) => (
-                <button key={h.q} type="button" className={`row ${h.v}`} onClick={() => check(h.q)}>
-                  <span className="row-code">{h.code}</span>
-                  <span className="row-text"><span className="row-title ell">{h.title}</span><span className="row-sub ell">{h.sub}</span></span>
-                  <Icon name="history" size={16} width={2} />
-                </button>
+                <div key={h.q} className={`row-wrap ${h.v}`}>
+                  <button type="button" className="row" onClick={() => check(h.q)}>
+                    <span className="row-code">{h.code}</span>
+                    <span className="row-text"><span className="row-title ell">{h.title}</span><span className="row-sub ell">{h.sub}</span></span>
+                    <Icon name="history" size={16} width={2} />
+                  </button>
+                  <button type="button" className="row-x" aria-label={`Remove ${h.title} from recent checks`} onClick={() => forget([h])}>
+                    <Icon name="close" size={14} width={2.4} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -235,6 +267,7 @@ export default function App() {
           <details>
             <summary>Map settings <Icon name="chevron" width={2} /></summary>
             <div className="settings">
+              {shop && <ZoneSettings shop={shop} variant={variant} onPick={setRun} onMade={refreshLocations} />}
               <div className="field">
                 <label htmlFor="focus">Show</label>
                 <select id="focus" value={focus} onChange={(e) => setFocus(e.target.value)}>
@@ -250,11 +283,12 @@ export default function App() {
           </details>
         </section>
 
-        <ZoneMap zones={zones} name={loc?.name ?? 'RoadZone'} opacity={opacity} focus={focus} theme={theme}
+        <ZoneMap onHelp={() => setAbout(true)} colourBy={colourBy} onColourBy={pickColour} zones={zones} name={loc?.name ?? 'RoadZone'} opacity={opacity} focus={focus} theme={theme}
           point={status === 'done' && r.lon != null ? [r.lon, r.lat] : null}
           highlight={status === 'done' ? r.zone : ''} />
       </main>
 
+      <HowItWorks open={about} onClose={() => setAbout(false)} loc={loc} />
       <Admin open={admin} onClose={() => setAdmin(false)} onMade={refreshLocations} />
     </>
   );

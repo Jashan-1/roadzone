@@ -1,7 +1,7 @@
 // node --test src/zone.test.js
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bandEdges, bandColour, legend, verdict, spoken, viaZone, bandRange, bookingNote, BAND_COLOURS } from './zone.js';
+import { bandEdges, bandColour, legend, verdict, spoken, viaZone, bandRange, bookingNote, sameSettings, corridorColour, shade, zoneColour, BAND_COLOURS } from './zone.js';
 
 const cov = { limit_miles: 50, hub_miles: 5, band_step_miles: 10 };
 
@@ -36,6 +36,26 @@ test('zone codes read aloud and name their branch', () => {
   assert.equal(viaZone('2AB'), '2A');
   assert.equal(viaZone('2A'), null);
   assert.equal(viaZone('0'), null);
+});
+
+test('each corridor has its own colour, darker for each ring further out', () => {
+  const ids = ['A', 'AB', 'B', 'HUB', 'L'];
+  const a = corridorColour('A', ids);
+  assert.notEqual(a, corridorColour('AB', ids));
+  assert.notEqual(a, corridorColour('B', ids));
+  assert.equal(corridorColour('HUB', ids), '#52525B');
+  assert.equal(shade('#3B7DD8', 1), '#3B7DD8');
+  assert.ok(parseInt(shade('#3B7DD8', 3).slice(1, 3), 16) < 0x3B);
+  assert.equal(zoneColour({ corridor: 'A', band: 2 }, 'zones', ids, 5), shade(a, 2));
+  assert.equal(zoneColour({ corridor: 'A', band: 0 }, 'distance', ids, 5), BAND_COLOURS[0]);
+  assert.match(corridorColour('Z', [...'ABCDEFGHIJKLMZ']), /^hsl\(/);
+});
+
+test('settings match ignores highway order and number types', () => {
+  const v = { limit_miles: 50, hub_miles: 5, band_step_miles: 10, min_corridor_cells: 30, highways: ['I', 'US'] };
+  assert.ok(sameSettings(v, { ...v, limit_miles: '50', highways: ['US', 'I'] }));
+  assert.ok(!sameSettings(v, { ...v, highways: ['I'] }));
+  assert.ok(!sameSettings(v, { ...v, min_corridor_cells: 40 }));
 });
 
 test('booking note is one pasteable line', () => {
