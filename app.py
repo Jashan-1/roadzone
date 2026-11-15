@@ -17,7 +17,7 @@ from collections import Counter, defaultdict
 
 from zonegen import lookup
 from zonegen.classify import band_edges
-from zonegen.pipeline import MAX_CALLS_PER_PROBE, in_boundary, load_boundary, load_config
+from zonegen.pipeline import in_boundary, load_boundary, load_config, write_custom_config
 
 def corridor_colour(i: int) -> tuple[int, int, int]:
     """i-th of an unlimited set of distinct colours: golden-angle hue steps, alternating lightness."""
@@ -60,16 +60,7 @@ def boundary():
 
 def make_run(cfg: dict, name: str, wait_msg: str) -> None:
     """Write the config, run the pipeline, name the run and select it. Errors show in the sidebar."""
-    b, c = cfg["base"], cfg["coverage"]
-    # road miles >= crow-flies miles, so this extent provably contains every covered cell
-    cfg["grid"]["extent_radius_km"] = round(c["limit_miles"] * 1.609344 + 2, 1)
-    # budget scales with area: ~0.737 km² per res-8 cell
-    cfg["request_budget"] = int(MAX_CALLS_PER_PROBE * math.pi * cfg["grid"]["extent_radius_km"] ** 2 / 0.737 * 1.1)
-    path =Path("configs/custom") / (f"{b['lat']:.5f}_{b['lon']:.5f}_{c['limit_miles']:g}_{c['hub_miles']:g}_"
-                                     f"{c['band_step_miles']:g}_{'-'.join(cfg['highway_types'])}_"
-                                     f"{cfg['min_corridor_cells']}.yaml")
-    path.parent.mkdir(exist_ok=True)
-    path.write_text(yaml.safe_dump(cfg, sort_keys=False))
+    path = write_custom_config(cfg)
     with st.spinner(wait_msg):
         proc = subprocess.run([sys.executable, "-m", "zonegen", "run", str(path)], capture_output=True, text=True)
     if proc.returncode:
@@ -193,13 +184,7 @@ def _zone_key(code: str) -> tuple:
     return (int(m.group(1)), m.group(2)) if m else (999, code)
 
 
-def _solid_zones(cells: list[dict]) -> dict[str, list[str]]:
-    """zone code -> its confidently zoned cells (faint / unknown cells never count as zone area)."""
-    zones = defaultdict(list)
-    for c in cells:
-        if c.get("zone_code") and c.get("hatch_status") != "hatched" and c["status"] == "centroid_sampled":
-            zones[c["zone_code"]].append(c["h3"])
-    return zones
+_solid_zones = lookup.solid_zones
 
 
 @st.cache_data

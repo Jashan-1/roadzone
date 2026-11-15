@@ -104,6 +104,21 @@ def in_boundary(boundary, lat: float, lon: float) -> bool:
     return boundary is None or boundary.contains(Point(lon, lat))
 
 
+def write_custom_config(cfg: dict) -> Path:
+    """Size the grid and request budget to the coverage, then save under configs/custom/. Returns the path."""
+    b, c = cfg["base"], cfg["coverage"]
+    # road miles >= crow-flies miles, so this extent provably contains every covered cell
+    cfg["grid"]["extent_radius_km"] = round(c["limit_miles"] * 1.609344 + 2, 1)
+    # budget scales with area: ~0.737 km² per res-8 cell
+    cfg["request_budget"] = int(MAX_CALLS_PER_PROBE * math.pi * cfg["grid"]["extent_radius_km"] ** 2 / 0.737 * 1.1)
+    path = Path("configs/custom") / (f"{b['lat']:.5f}_{b['lon']:.5f}_{c['limit_miles']:g}_{c['hub_miles']:g}_"
+                                     f"{c['band_step_miles']:g}_{'-'.join(cfg['highway_types'])}_"
+                                     f"{cfg['min_corridor_cells']}.yaml")
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(yaml.safe_dump(cfg, sort_keys=False))
+    return path
+
+
 def candidate_cells(cfg: dict) -> list[str]:
     """H3 cells whose centers fall inside the pinned extent circle, nearest first (deterministic)."""
     b, g = cfg["base"], cfg["grid"]

@@ -227,3 +227,6 @@ configs/custom/
 .claude/skills/developing-with-streamlit
 .agents/
 deliverables/
+
+# dealer page (web/): build output is made on deploy
+web/node_modules/

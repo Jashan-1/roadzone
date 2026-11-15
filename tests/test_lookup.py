@@ -61,3 +61,63 @@ def test_zone_endpoint_answers_and_rejects_bad_input(tmp_path, monkeypatch):
     assert serve.zone_for(rid, "x" * 301)[0] == 400
     monkeypatch.setattr(lookup, "resolve", lambda q: None)
     assert serve.zone_for(rid, "nowhere")[0] == 422
+
+
+def _cells_run(root, rid, name=None, coverage=None):
+    import json
+    d = root / "runs" / rid
+    d.mkdir(parents=True)
+    cell = {"zone_code": "2AB", "hatch_status": "none", "status": "centroid_sampled", "h3": "8828308281fffff"}
+    feats = [{"id": "c1", "properties": cell},
+             {"id": "c2", "properties": {**cell, "zone_code": None, "status": "outside_coverage"}},
+             {"id": "base", "properties": {}, "geometry": {"type": "Point", "coordinates": [-121.97, 37.32]}}]
+    (d / "cells.geojson").write_text(json.dumps({"features": feats}))
+    (d / "run_meta.json").write_text(json.dumps({"config": "configs/x.yaml", **({"coverage": coverage} if coverage else {})}))
+    if name:
+        (d / "name.txt").write_text(name)
+
+
+def test_locations_keep_the_newest_run_per_shop_and_zones_outline_solid_cells(tmp_path, monkeypatch):
+    import json, os
+    from zonegen import serve
+    monkeypatch.chdir(tmp_path)
+    _cells_run(tmp_path, "old", "Stevens Creek")
+    _cells_run(tmp_path, "new", "Stevens Creek", {"limit_miles": 40, "hub_miles": 5, "band_step_miles": 10, "metric": "distance"})
+    os.utime(tmp_path / "runs" / "old" / "cells.geojson", (1, 1))
+    os.utime(tmp_path / "runs" / "old", (1, 1))
+    code, locs = serve.locations()
+    assert code == 200 and [(l["run"], l["limit_miles"]) for l in locs] == [("new", 40.0)]
+    serve._zones.cache_clear()
+    code, body = serve.zones("new")
+    fc = json.loads(body)
+    assert code == 200 and fc["base"] == [-121.97, 37.32]
+    assert [f["properties"] for f in fc["features"]] == [{"zone": "2AB", "band": 2}]  # out-of-area cell left out
+    assert serve.zones("../etc")[0] == 404
+
+
+def test_admin_runs_need_the_password_and_valid_settings(monkeypatch):
+    from zonegen import serve
+    ok = {"where": "37.32, -121.97", "limit_miles": 50, "hub_miles": 5, "band_step_miles": 10,
+          "min_corridor_cells": 30, "highways": ["I"]}
+    monkeypatch.delenv("ROADZONE_ADMIN_PASSWORD", raising=False)
+    assert serve.start_run(ok, "Bearer x")[0] == 403  # admin off until a password is set
+    monkeypatch.setenv("ROADZONE_ADMIN_PASSWORD", "s3cret")
+    assert serve.start_run(ok, "Bearer wrong")[0] == 401
+    assert serve.jobs("")[0] == 401
+    auth = "Bearer s3cret"
+    assert serve.start_run({**ok, "highways": []}, auth)[0] == 400
+    assert serve.start_run({**ok, "highways": ["XX"]}, auth)[0] == 400
+    assert serve.start_run({**ok, "where": "Main St"}, auth)[0] == 400
+    assert serve.start_run({**ok, "hub_miles": 50}, auth)[0] == 400
+    assert serve.start_run({**ok, "limit_miles": 500}, auth)[0] == 400
+    assert serve.start_run({k: v for k, v in ok.items() if k != "limit_miles"}, auth)[0] == 400
+
+
+def test_static_never_serves_outside_the_build(tmp_path, monkeypatch):
+    from zonegen import serve
+    (tmp_path / "index.html").write_text("page")
+    (tmp_path / "app.js").write_text("js")
+    monkeypatch.setattr(serve, "WEB", tmp_path)
+    assert serve.static("/app.js")[1] == b"js"
+    assert serve.static("/../../etc/passwd")[1] == b"page"
+    assert serve.static("/admin")[1] == b"page"

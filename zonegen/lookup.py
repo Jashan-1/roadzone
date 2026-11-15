@@ -55,6 +55,15 @@ def zone_letters(cells: list[dict]) -> dict[str, str]:
             if c.get("family_key") and c.get("zone_code") and c.get("corridor_status") == "supported"}
 
 
+def solid_zones(cells: list[dict]) -> dict[str, list[str]]:
+    """zone code -> its confidently zoned cells (faint / unknown cells never count as zone area)."""
+    zones: dict[str, list[str]] = {}
+    for c in cells:
+        if c.get("zone_code") and c.get("hatch_status") != "hatched" and c["status"] == "centroid_sampled":
+            zones.setdefault(c["zone_code"], []).append(c["h3"])
+    return zones
+
+
 def _use_run_config(cfg_path: str) -> dict:
     cfg = load_config(Path(cfg_path))
     key = cfg["data"]["refs_cache"]

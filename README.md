@@ -185,7 +185,10 @@ uv run pytest                                              # classifier unit tes
 uv run python -m zonegen run configs/stevens_creek.yaml --max-probes 200   # smoke test
 uv run python -m zonegen run configs/stevens_creek.yaml    # full run; resumable
 uv run streamlit run app.py                                # viewer: map, addresses, branch comparison (http://localhost:8501)
-uv run python -m zonegen serve --port 8600                 # GET /zone?run=<run_id>&q=<lat, lon or address> (localhost)
+(cd web && npm install && npm run build)                   # dealer page (React + Vite) -> web/dist
+ROADZONE_ADMIN_PASSWORD=... uv run python -m zonegen serve --port 8600   # dealer page + /zone and /api (http://localhost:8600)
+(cd web && npm run dev)                                    # page with hot reload; proxies /api and /zone to :8600
+(cd web && node --test src/zone.test.js)                   # dealer page zone-logic tests
 uv run python -m scripts.sweep                             # same pipeline at 7 California test bases
 uv run python -m scripts.compare_runs runs/OLD:runs/NEW    # per-cell band/corridor changes between two runs
 uv run python -m scripts.scenarios                         # 23 tricky cases + public OSRM cross-check -> runs/scenarios.md
