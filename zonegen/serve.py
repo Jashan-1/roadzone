@@ -3,17 +3,15 @@
 GET  /zone?run=<run id>&q=<'lat, lon' or street address>   one address -> zone
 GET  /api/locations                                         newest run per shop name
 GET  /api/zones?run=<run id>                                zone outlines for the map
-GET  /api/jobs, POST /api/runs                              admin: make zones (needs ROADZONE_ADMIN_PASSWORD)
+GET  /api/jobs, POST /api/runs                              admin: make zones
 anything else                                               the built page in web/dist
 
-shortcut: no login on the dealer endpoints and localhost only, add auth before exposing it beyond this machine.
+shortcut: no login at all, including making zones, and localhost only; add auth before exposing it beyond this machine.
 Served one request at a time on purpose: the router's worker state is per process, not per thread.
 Zone-making jobs run as subprocesses, so they never touch this process's router.
 """
-import hmac
 import json
 import mimetypes
-import os
 import re
 import subprocess
 import sys
@@ -119,16 +117,6 @@ def _boundary():
     return load_boundary(load_config(TEMPLATE)["data"].get("boundary"))
 
 
-def _admin_ok(auth: str) -> tuple[int, dict] | None:
-    """None when the caller is an admin, else the error response."""
-    pw = os.environ.get("ROADZONE_ADMIN_PASSWORD")
-    if not pw:
-        return 403, {"error": "Admin is turned off. Set ROADZONE_ADMIN_PASSWORD on the server."}
-    if not hmac.compare_digest(auth.encode(), f"Bearer {pw}".encode()):
-        return 401, {"error": "Wrong admin password."}
-    return None
-
-
 def _number(body: dict, key: str, lo: float, hi: float) -> float:
     v = float(body[key])
     if not lo <= v <= hi:
@@ -147,9 +135,7 @@ def _job(jid: str, path: Path, name: str):
     JOBS[jid].update(state="done", run=rid)
 
 
-def start_run(body: dict, auth: str) -> tuple[int, dict]:
-    if err := _admin_ok(auth):
-        return err
+def start_run(body: dict) -> tuple[int, dict]:
     if any(j["state"] == "running" for j in JOBS.values()):
         return 409, {"error": "Zones are already being made. Wait for that to finish."}
     try:
@@ -182,9 +168,7 @@ def start_run(body: dict, auth: str) -> tuple[int, dict]:
     return 202, JOBS[jid]
 
 
-def jobs(auth: str) -> tuple[int, dict | list]:
-    if err := _admin_ok(auth):
-        return err
+def jobs() -> tuple[int, list]:
     return 200, sorted(JOBS.values(), key=lambda j: -j["started"])
 
 
@@ -211,11 +195,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         args = {k: v[0] for k, v in parse_qs(url.query).items()}
-        auth = self.headers.get("Authorization", "")
         routes = {"/zone": lambda: zone_for(args.get("run", ""), args.get("q", "")),
                   "/api/locations": locations,
                   "/api/zones": lambda: zones(args.get("run", "")),
-                  "/api/jobs": lambda: jobs(auth)}
+                  "/api/jobs": jobs}
         if url.path in routes:
             self._send(*routes[url.path]())
         elif url.path.startswith("/api/"):
@@ -235,7 +218,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {"error": "body must be JSON"})
         if not isinstance(body, dict):
             return self._send(400, {"error": "body must be a JSON object"})
-        self._send(*start_run(body, self.headers.get("Authorization", "")))
+        self._send(*start_run(body))
 
 
 def serve(port: int):

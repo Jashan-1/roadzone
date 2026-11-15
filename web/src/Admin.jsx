@@ -2,15 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon.jsx';
 
 const HIGHWAYS = [['I', 'Interstate (I)'], ['US', 'US routes'], ['CA', 'State routes (CA)']];
-const KEY = 'rz-admin';
-
-function load(key) { try { return sessionStorage.getItem(key) || ''; } catch { return ''; } }
-function save(key, v) { try { v ? sessionStorage.setItem(key, v) : sessionStorage.removeItem(key); } catch { /* private mode */ } }
 
 export default function Admin({ open, onClose, onMade }) {
   const dlg = useRef(null);
-  const [pw, setPw] = useState(load(KEY));
-  const [authed, setAuthed] = useState(load(KEY)); // the password the server last accepted
   const [jobs, setJobs] = useState([]);
   const seen = useRef({});
   const [error, setError] = useState('');
@@ -24,24 +18,23 @@ export default function Admin({ open, onClose, onMade }) {
     if (!open && d.open) d.close();
   }, [open]);
 
-  const call = async (url, key, opts = {}) => {
+  const call = async (url, opts = {}) => {
     let res;
     try {
-      res = await fetch(url, { ...opts, headers: { ...opts.headers, Authorization: `Bearer ${key}` } });
+      res = await fetch(url, opts);
     } catch {
       return { ok: false, body: { error: 'Can’t reach the RoadZone server.' } };
     }
     const body = await res.json().catch(() => ({ error: `Server error ${res.status}` }));
-    if (res.status === 401 || res.status === 403) { save(KEY, ''); setAuthed(''); }
     return { ok: res.ok, body };
   };
 
   // while open, keep the job list fresh; a job that just finished means a new location to pick
   useEffect(() => {
-    if (!open || !authed) return;
+    if (!open) return;
     let alive = true;
     const tick = async () => {
-      const { ok, body } = await call('/api/jobs', authed);
+      const { ok, body } = await call('/api/jobs');
       if (!alive) return;
       if (!ok) return setError(body.error);
       if (body.some((j) => j.state === 'done' && seen.current[j.job] === 'running')) onMade();
@@ -51,22 +44,20 @@ export default function Admin({ open, onClose, onMade }) {
     tick();
     const id = setInterval(tick, 5000);
     return () => { alive = false; clearInterval(id); };
-  }, [open, authed]);
+  }, [open]);
 
   const submit = async (e) => {
     e.preventDefault();
     setError('');
     if (!form.highways.length) return setError('Pick at least one highway type.');
     setBusy(true);
-    const { ok, body } = await call('/api/runs', pw, {
+    const { ok, body } = await call('/api/runs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...form, limit_miles: +form.limit_miles, hub_miles: +form.hub_miles,
         band_step_miles: +form.band_step_miles, min_corridor_cells: +form.min_corridor_cells }),
     });
     setBusy(false);
     if (!ok) return setError(body.error);
-    save(KEY, pw);
-    setAuthed(pw);
     seen.current[body.job] = 'running';
     setJobs((j) => [body, ...j]);
   };
@@ -80,17 +71,12 @@ export default function Admin({ open, onClose, onMade }) {
         <div className="dlg-head">
           <div style={{ flexGrow: 1 }}>
             <h2 id="admin-title">New location</h2>
-            <p>Admin only. Makes zones for a new dealership.</p>
+            <p>Makes zones for a new dealership.</p>
           </div>
           <button type="button" className="round" aria-label="Close" onClick={onClose}><Icon name="close" size={16} /></button>
         </div>
 
         <div className="dlg-body">
-          <div className="field">
-            <label htmlFor="apw">Admin password</label>
-            <input id="apw" type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} required />
-          </div>
-
           <fieldset>
             <legend>Where is the shop?</legend>
             <div className="grid2">

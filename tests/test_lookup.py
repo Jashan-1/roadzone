@@ -95,22 +95,16 @@ def test_locations_keep_the_newest_run_per_shop_and_zones_outline_solid_cells(tm
     assert serve.zones("../etc")[0] == 404
 
 
-def test_admin_runs_need_the_password_and_valid_settings(monkeypatch):
+def test_admin_runs_reject_bad_settings():
     from zonegen import serve
     ok = {"where": "37.32, -121.97", "limit_miles": 50, "hub_miles": 5, "band_step_miles": 10,
           "min_corridor_cells": 30, "highways": ["I"]}
-    monkeypatch.delenv("ROADZONE_ADMIN_PASSWORD", raising=False)
-    assert serve.start_run(ok, "Bearer x")[0] == 403  # admin off until a password is set
-    monkeypatch.setenv("ROADZONE_ADMIN_PASSWORD", "s3cret")
-    assert serve.start_run(ok, "Bearer wrong")[0] == 401
-    assert serve.jobs("")[0] == 401
-    auth = "Bearer s3cret"
-    assert serve.start_run({**ok, "highways": []}, auth)[0] == 400
-    assert serve.start_run({**ok, "highways": ["XX"]}, auth)[0] == 400
-    assert serve.start_run({**ok, "where": "Main St"}, auth)[0] == 400
-    assert serve.start_run({**ok, "hub_miles": 50}, auth)[0] == 400
-    assert serve.start_run({**ok, "limit_miles": 500}, auth)[0] == 400
-    assert serve.start_run({k: v for k, v in ok.items() if k != "limit_miles"}, auth)[0] == 400
+    assert serve.start_run({**ok, "highways": []})[0] == 400
+    assert serve.start_run({**ok, "highways": ["XX"]})[0] == 400
+    assert serve.start_run({**ok, "where": "Main St"})[0] == 400
+    assert serve.start_run({**ok, "hub_miles": 50})[0] == 400
+    assert serve.start_run({**ok, "limit_miles": 500})[0] == 400
+    assert serve.start_run({k: v for k, v in ok.items() if k != "limit_miles"})[0] == 400
 
 
 def test_static_never_serves_outside_the_build(tmp_path, monkeypatch):

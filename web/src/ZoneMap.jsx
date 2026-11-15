@@ -5,8 +5,6 @@ import { Icon } from './Icon.jsx';
 
 // OpenFreeMap: free vector tiles, no key, commercial use allowed
 const STYLE = { light: 'https://tiles.openfreemap.org/styles/positron', dark: 'https://tiles.openfreemap.org/styles/dark' };
-const dark = window.matchMedia('(prefers-color-scheme: dark)');
-
 function bounds(fc, extra = []) {
   const b = new maplibregl.LngLatBounds();
   for (const f of fc?.features ?? []) {
@@ -14,37 +12,38 @@ function bounds(fc, extra = []) {
     const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
     for (const poly of polys) for (const [x, y] of poly[0]) b.extend([x, y]); // outer rings are enough
   }
-  if (fc?.base) b.extend(fc.base);
+  if (fc?.base) b.extend(fc.base); // null when only one zone should fill the view
   for (const p of extra) b.extend(p);
   return b;
 }
 
-export default function ZoneMap({ zones, name, point, highlight, focus, opacity }) {
+export default function ZoneMap({ zones, name, point, highlight, focus, opacity, theme }) {
   const box = useRef(null);
   const map = useRef(null);
   const marks = useRef({});
-  const [scheme, setScheme] = useState(dark.matches ? 'dark' : 'light');
+  const shown = useRef(theme);
+  const scheme = theme;
   const [ready, setReady] = useState(0);
   const last = zones ? legend(zones.coverage).length - 1 : 0;
 
   useEffect(() => {
-    const m = new maplibregl.Map({ container: box.current, style: STYLE[scheme], center: [-121.97, 37.32], zoom: 8,
+    const m = new maplibregl.Map({ container: box.current, style: STYLE[theme], center: [-121.97, 37.32], zoom: 8,
       attributionControl: { compact: true }, dragRotate: false, pitchWithRotate: false });
     m.touchZoomRotate.disableRotation();
     m.on('style.load', () => setReady((n) => n + 1)); // re-add our layers after every style swap
     map.current = m;
-    const flip = (e) => {
-      const s = e.matches ? 'dark' : 'light';
-      setScheme(s);
-      m.setStyle(STYLE[s], { diff: false });
-    };
-    dark.addEventListener('change', flip);
-    return () => { dark.removeEventListener('change', flip); m.remove(); };
+    return () => m.remove();
   }, []);
 
   useEffect(() => {
+    if (shown.current === theme) return;
+    shown.current = theme;
+    map.current.setStyle(STYLE[theme], { diff: false });
+  }, [theme]);
+
+  useEffect(() => {
     const m = map.current;
-    if (!ready || !zones) return;
+    if (!ready || !zones || !m.getStyle()) return; // mid style swap: 'style.load' bumps `ready` and we run again
     const data = { ...zones, features: zones.features.map((f) => ({ ...f, properties: { ...f.properties, colour: bandColour(f.properties.band, last) } })) };
     if (m.getSource('zones')) m.getSource('zones').setData(data);
     else {
@@ -63,11 +62,19 @@ export default function ZoneMap({ zones, name, point, highlight, focus, opacity 
   useEffect(() => {
     const m = map.current;
     if (!ready || !m.getLayer('zones-fill')) return;
+    // the chosen zone always keeps the full colour strength; only the others fade
     const a = opacity / 100;
-    m.setPaintProperty('zones-fill', 'fill-opacity', focus ? ['case', ['==', ['get', 'zone'], focus], a, a * 0.15] : a);
-    m.setPaintProperty('zones-line', 'line-opacity', focus ? ['case', ['==', ['get', 'zone'], focus], 0.9, 0.1] : 0.5);
-    m.setFilter('zone-pick', ['==', ['get', 'zone'], highlight || '']);
+    const on = ['==', ['get', 'zone'], focus || ''];
+    m.setPaintProperty('zones-fill', 'fill-opacity', focus ? ['case', on, a, a * 0.2] : a);
+    m.setPaintProperty('zones-line', 'line-opacity', focus ? ['case', on, 1, 0.15] : 0.5);
+    m.setFilter('zone-pick', ['==', ['get', 'zone'], highlight || focus || '']);
   }, [ready, zones, focus, opacity, highlight]);
+
+  useEffect(() => {
+    if (!zones) return;
+    const one = focus ? { ...zones, base: null, features: zones.features.filter((f) => f.properties.zone === focus) } : null;
+    map.current.fitBounds(bounds(one?.features.length ? one : zones), { padding: 60, maxZoom: 12, duration: 500 });
+  }, [focus]);
 
   useEffect(() => {
     const place = (key, lngLat, cls, label) => {

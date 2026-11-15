@@ -186,7 +186,7 @@ uv run python -m zonegen run configs/stevens_creek.yaml --max-probes 200   # smo
 uv run python -m zonegen run configs/stevens_creek.yaml    # full run; resumable
 uv run streamlit run app.py                                # viewer: map, addresses, branch comparison (http://localhost:8501)
 (cd web && npm install && npm run build)                   # dealer page (React + Vite) -> web/dist
-ROADZONE_ADMIN_PASSWORD=... uv run python -m zonegen serve --port 8600   # dealer page + /zone and /api (http://localhost:8600)
+uv run python -m zonegen serve --port 8600                 # dealer page + /zone and /api (http://localhost:8600)
 (cd web && npm run dev)                                    # page with hot reload; proxies /api and /zone to :8600
 (cd web && node --test src/zone.test.js)                   # dealer page zone-logic tests
 uv run python -m scripts.sweep                             # same pipeline at 7 California test bases

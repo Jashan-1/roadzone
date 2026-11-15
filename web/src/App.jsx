@@ -30,7 +30,10 @@ export default function App() {
   const [history, setHistory] = useState(read('rz-history', []));
   const [copied, setCopied] = useState('');
   const [focus, setFocus] = useState('');
-  const [opacity, setOpacity] = useState(40);
+  const [opacity, setOpacity] = useState(70); // Streamlit's default colour strength
+  const [theme, setTheme] = useState(read('rz-theme', null) ?? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
+  const flipTheme = () => setTheme((t) => { const next = t === 'dark' ? 'light' : 'dark'; write('rz-theme', next); return next; });
   const [admin, setAdmin] = useState(false);
   const [loadError, setLoadError] = useState('');
   const pending = useRef(null);
@@ -121,6 +124,9 @@ export default function App() {
             {(locations ?? []).map((l) => <option key={l.run} value={l.run}>{l.name}</option>)}
           </select>
         </div>
+        <button type="button" className="round" aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} onClick={flipTheme}>
+          <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={20} width={2} />
+        </button>
         <button type="button" className="round" aria-label="Admin: make zones for a new location" onClick={() => setAdmin(true)}><Icon name="sliders" size={20} width={2} /></button>
       </header>
 
@@ -128,7 +134,7 @@ export default function App() {
         <section className="panel" aria-label="Address check">
           <div>
             <p className="area">{loc ? `${loc.name} · ${loc.limit_miles} road-mile service area` : ' '}</p>
-            <h1>Where’s the customer?</h1>
+            <h1>Which zone is an address in?</h1>
           </div>
 
           {loadError && (
@@ -142,26 +148,17 @@ export default function App() {
           )}
 
           <form className="search" onSubmit={(e) => { e.preventDefault(); check(query); }}>
-            <div className="legs">
-              <div className="leg">
-                <span className="mark from" />
-                <div className="leg-body">
-                  <span className="leg-label">From dealer</span>
-                  <span className="leg-value ell">{loc?.name ?? '…'}</span>
-                </div>
+            <div className="field">
+              <label htmlFor="q">Address or coordinates</label>
+              <div className="query">
+                <input id="q" ref={input} type="text" value={query} autoComplete="off" autoFocus maxLength={300}
+                  placeholder="37.4419, -122.1430" aria-describedby="q-help" onChange={(e) => setQuery(e.target.value)} />
+                {query && <button type="button" className="round" aria-label="Clear" onClick={reset}><Icon name="close" size={14} width={2.8} /></button>}
               </div>
-              <div className="leg to">
-                <span className="mark" />
-                <div className="leg-body">
-                  <label htmlFor="q" className="leg-label">To customer address</label>
-                  <input id="q" ref={input} type="text" value={query} autoComplete="off" autoFocus maxLength={300}
-                    placeholder="Street address, or lat, lon" onChange={(e) => setQuery(e.target.value)} />
-                </div>
-                {query && <button type="button" className="round" aria-label="Clear address" onClick={reset}><Icon name="close" size={14} width={2.8} /></button>}
-              </div>
+              <p id="q-help" className="help">Paste coordinates from Google Maps (e.g. 37.3230, -121.9700) or type an address. Typed addresses are looked up on OpenStreetMap, an outside website; coordinates stay here.</p>
             </div>
             <button type="submit" className="go" disabled={!query.trim() || !run || status === 'loading'}>
-              Check zone <Icon name="arrow" width={2.4} />
+              Check <Icon name="arrow" width={2.4} />
             </button>
           </form>
 
@@ -253,7 +250,7 @@ export default function App() {
           </details>
         </section>
 
-        <ZoneMap zones={zones} name={loc?.name ?? 'RoadZone'} opacity={opacity} focus={focus}
+        <ZoneMap zones={zones} name={loc?.name ?? 'RoadZone'} opacity={opacity} focus={focus} theme={theme}
           point={status === 'done' && r.lon != null ? [r.lon, r.lat] : null}
           highlight={status === 'done' ? r.zone : ''} />
       </main>
