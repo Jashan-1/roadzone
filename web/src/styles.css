@@ -322,11 +322,11 @@ dialog .dlg-body { overflow: auto; }
   main { display: block; padding: 0; height: 0; }
 
   .map { position: fixed; inset: 0; z-index: 0; width: 100vw; height: 100vh; height: 100dvh; min-height: 0; border-radius: 0; }
-  .map-tools { top: 148px; right: 12px; }
+  .map-tools { top: 76px; right: 12px; }
   .map-tools > button[aria-label*="ull screen"] { display: none; } /* the map already is the whole screen */
-  .legend-open { top: 148px; bottom: auto; left: 12px; }
-  .legend { top: 148px; bottom: auto; left: 12px; right: 68px; }
-  .map-busy { top: 200px; left: 12px; transform: none; max-width: calc(100% - 80px); }
+  .legend-open { top: 76px; bottom: auto; left: 12px; }
+  .legend { top: 76px; bottom: auto; left: 12px; right: 68px; }
+  .map-busy { top: 128px; left: 12px; transform: none; max-width: calc(100% - 80px); }
 
   /* floating top row: location pill + round buttons */
   .top { position: fixed; top: 16px; left: 16px; right: 16px; z-index: 20; min-height: 0; padding: 0; gap: 8px; flex-wrap: nowrap; background: transparent; pointer-events: none; }
@@ -342,16 +342,16 @@ dialog .dlg-body { overflow: auto; }
   .panel { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; max-width: none; max-height: 58vh; max-height: 58dvh; overflow-y: auto; overscroll-behavior: contain;
     background: var(--card); border-radius: 20px 20px 0 0; box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.12); padding: 8px 16px calc(20px + env(safe-area-inset-bottom)); gap: 14px; }
   .panel::before { content: ''; align-self: center; flex-shrink: 0; width: 36px; height: 4px; border-radius: 2px; background: var(--line); }
-  .panel > div:has(> h1), .panel h1, .area { display: none; } /* the location is in the pill above */
 
-  /* floating search bar (fixed children escape the sheet's scroll box) */
-  .search { position: fixed; top: 72px; left: 16px; right: 16px; z-index: 20; flex-direction: row; align-items: center; gap: 8px; }
+
+  /* the one address box: in the sheet, under the headline; hidden while a result is showing (New check brings it back) */
+  .search { flex-direction: row; align-items: center; gap: 8px; }
+  .panel:has(article.card) .search { display: none; }
   .search .field { flex: 1 1 auto; min-width: 0; gap: 0; }
   .search .label-row, .search .help { display: none; }
-  .query { height: 56px; background: var(--map-card); box-shadow: var(--pop); padding-left: 16px; }
+  .query { height: 56px; background: var(--input); padding-left: 16px; }
   .query::before { content: ''; width: 10px; height: 10px; flex-shrink: 0; background: var(--text); } /* customer marker, as on the map */
-  .go { width: 56px; height: 56px; flex-shrink: 0; font-size: 0; gap: 0; border-radius: 10px; box-shadow: var(--pop); }
-  .go:disabled { background: var(--map-card); }
+  .go { width: 56px; height: 56px; flex-shrink: 0; font-size: 0; gap: 0; border-radius: 10px; }
   .go svg { width: 22px; height: 22px; }
 
   /* the sheet is the card: results sit flat inside it */
@@ -370,10 +370,10 @@ dialog .dlg-body { overflow: auto; }
 /* phone: pull-up sheet. Peek shows the top of the sheet over the map; pulled up it shows everything */
 @media (max-width: 600px) {
   .panel { max-height: 46vh; max-height: 46dvh; transition: max-height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1); padding-top: 0; }
-  .panel.up { max-height: calc(100vh - 140px); max-height: calc(100dvh - 140px); } /* stops below the search bar, handle stays reachable */
+  .panel.up { max-height: calc(100vh - 76px); max-height: calc(100dvh - 76px); } /* stops below the search bar, handle stays reachable */
   .panel.down, .panel.down:has(.card[role="status"]) { max-height: calc(34px + env(safe-area-inset-bottom)); overflow: hidden; } /* just the handle: the map gets the screen */
   .panel:has(.card[role="status"]) { max-height: 60vh; max-height: 60dvh; } /* a result needs room even at peek */
-  .panel.up:has(.card[role="status"]) { max-height: calc(100vh - 140px); max-height: calc(100dvh - 140px); }
+  .panel.up:has(.card[role="status"]) { max-height: calc(100vh - 76px); max-height: calc(100dvh - 76px); }
   .panel::before { display: none; }
   .sheet-handle { position: sticky; top: 0; z-index: 1; flex-shrink: 0; align-self: stretch; height: 28px; margin: 0 -16px -6px; border: 0; background: var(--card); touch-action: none; display: flex; align-items: center; justify-content: center; cursor: grab; }
   .sheet-handle span { width: 40px; height: 5px; border-radius: 3px; background: var(--line); }
@@ -384,3 +384,68 @@ dialog .dlg-body { overflow: auto; }
 }
 @media (max-width: 600px) and (prefers-reduced-motion: reduce) { .panel { transition: none; } }
 @media (max-width: 600px) { .panel details { border-top: 0; } } /* no divider in the sheet */
+
+/* customer pin callout on the map ("Zone 2AB · 18.6 mi"), both layouts */
+.pin-customer { position: relative; }
+.pin-tag { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); white-space: nowrap; padding: 6px 10px; border-radius: 8px; background: var(--pin-bg); color: var(--pin-fg); font: 700 13px/1 Inter, system-ui, sans-serif; box-shadow: var(--pop); pointer-events: none; }
+.pin-tag::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -6px; border: 6px solid transparent; border-top-color: var(--pin-bg); }
+
+/* phone result, after Uber's trip sheet: centred headline, one bold block with the zone, outlined cards */
+@media (max-width: 600px) {
+  .panel .verdict { position: relative; flex-direction: column; gap: 2px; padding: 4px 40px 2px; text-align: center; }
+  .panel .verdict .badge { display: none; }
+  .panel .verdict .what { flex-grow: 0; max-width: 100%; }
+  .panel .verdict .title { font-family: var(--display); font-size: 24px; font-weight: 800; letter-spacing: -0.02em; }
+  .panel .verdict .place { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .panel .verdict .round { position: absolute; top: -2px; right: -8px; }
+
+  /* the zone block: tone colour, label and "say it" left, big code right, copy under */
+  .panel .zone { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; row-gap: 2px;
+    background: var(--tone); color: var(--on-tone); border-radius: 18px; padding: 16px 18px; }
+  .panel .zone > div { display: contents; }
+  .panel .zone-label { grid-area: 1 / 1; color: inherit; opacity: 0.85; font-size: 15px; }
+  .panel .zone-say { grid-area: 2 / 1; color: inherit; opacity: 0.85; margin: 0; font-size: 13px; }
+  .panel .zone-code { grid-area: 1 / 2 / 3 / 3; margin: 0; font-size: 56px; color: inherit; }
+  .panel .zone .pill { grid-area: 3 / 1 / 4 / 3; justify-self: start; height: 34px; padding: 0 12px; margin-top: 8px; background: rgba(255, 255, 255, 0.18); color: inherit; }
+  :root[data-theme="dark"] .panel .zone .pill { background: rgba(0, 0, 0, 0.14); }
+
+  /* secondary info as outlined cards */
+  .panel .script, .panel .note { background: transparent; border: 1.5px solid var(--line); border-radius: 18px; padding: 14px 16px; }
+  .panel .note { border-color: color-mix(in srgb, var(--tone) 45%, transparent); }
+  .panel .facts { border-width: 1.5px; border-radius: 18px; }
+  .panel .facts dd { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.2; } /* "CA-85 south" wraps, never cut */
+
+  /* at peek a result shows just the headline and the zone block; pull up for the rest */
+  .panel.peek:has(.card[role="status"] .zone) { max-height: 290px; }
+}
+
+/* phone, nothing checked yet: Uber-style sheet header (centred headline, location underneath), then recent
+   checks; map settings sit below, a pull-up away. Once a check starts, the result takes over the header */
+@media (max-width: 600px) {
+  .panel > div:has(> h1) { display: flex; flex-direction: column-reverse; align-items: center; gap: 4px; text-align: center; padding: 2px 8px 4px; }
+  .panel h1 { font-size: 24px; letter-spacing: -0.02em; }
+  .panel .area { display: block; margin: 0; font-size: 13px; font-weight: 500; }
+  .panel:has(.card) > div:has(> h1) { display: none; }
+  .panel.peek:not(:has(.card)) { max-height: 340px; }
+}
+@media (max-width: 600px) {
+}
+
+/* auto-hiding map controls: fade when idle, come straight back on activity (loading pill and pin callout stay) */
+.map-tools, .legend, .legend-open, .map-pill { transition: opacity 0.4s ease; }
+.map.quiet .map-tools, .map.quiet .legend, .map.quiet .legend-open, .map.quiet .map-pill { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .map-tools, .legend, .legend-open, .map-pill { transition: none; } }
+
+/* map settings: one calm hierarchy — section title, small bold question per group, small grey field labels */
+.settings { gap: 24px; }
+.settings fieldset legend, .settings > .field > label { margin-bottom: 10px; font-size: 14px; font-weight: 600; color: var(--text); }
+.settings fieldset legend span { font-weight: 400; color: var(--sub); }
+.settings > .field { gap: 10px; }
+.settings > .field > label { margin-bottom: 0; }
+.settings .grid3 .field label { font-size: 12px; font-weight: 500; color: var(--sub); }
+.settings .ends { margin-top: -4px; font-size: 12px; }
+@media (max-width: 600px) {
+  .panel summary { padding: 6px 0 2px; font-family: var(--display); font-size: 20px; font-weight: 800; letter-spacing: -0.02em; }
+  .settings { padding-top: 12px; }
+}
+.settings > .field > label span { margin-left: 4px; font-weight: 400; color: var(--sub); }

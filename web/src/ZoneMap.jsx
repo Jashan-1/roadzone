@@ -12,7 +12,7 @@ const phone = window.matchMedia('(max-width: 600px)'); // full-screen map under 
 function pad(base) {
   if (!phone.matches) return base;
   const sheet = document.querySelector('.panel')?.getBoundingClientRect().height ?? 200;
-  return { top: 200, bottom: Math.min(sheet, window.innerHeight * 0.6) + 24, left: 32, right: 80 };
+  return { top: 130, bottom: Math.min(sheet, window.innerHeight * 0.6) + 24, left: 32, right: 80 };
 }
 
 function bounds(fc, extra = []) {
@@ -40,7 +40,7 @@ function zoneCard(p, coverage) {
   return el;
 }
 
-export default function ZoneMap({ busy, zones, name, point, highlight, focus, opacity, theme, colourBy, onColourBy, onHelp }) {
+export default function ZoneMap({ busy, zones, name, point, pointTag, highlight, focus, opacity, theme, colourBy, onColourBy, onHelp }) {
   const box = useRef(null);
   const map = useRef(null);
   const marks = useRef({});
@@ -50,6 +50,15 @@ export default function ZoneMap({ busy, zones, name, point, highlight, focus, op
   const scheme = theme;
   const [ready, setReady] = useState(0);
   const [full, setFull] = useState(false);
+  // auto-hiding controls: fade after 2 s without activity on the map, back on any touch, swipe, mouse or focus
+  const [quiet, setQuiet] = useState(false);
+  const quietTimer = useRef(null);
+  const wake = () => {
+    setQuiet(false);
+    clearTimeout(quietTimer.current);
+    quietTimer.current = setTimeout(() => setQuiet(true), 2000);
+  };
+  useEffect(() => { wake(); return () => clearTimeout(quietTimer.current); }, []);
   // the key starts tucked away on phones, where it would cover most of the map; a choice made before is kept
   const [key, setKey] = useState(() => {
     let saved = null;
@@ -154,27 +163,29 @@ export default function ZoneMap({ busy, zones, name, point, highlight, focus, op
   }, [focus]);
 
   useEffect(() => {
-    const place = (key, lngLat, cls, label) => {
+    const place = (key, lngLat, cls, label, tag) => {
       marks.current[key]?.remove();
       delete marks.current[key];
       if (!lngLat) return;
       const el = document.createElement('div');
       el.className = cls;
       el.setAttribute('role', 'img');
-      el.setAttribute('aria-label', label);
+      el.setAttribute('aria-label', tag ? `${label}: ${tag}` : label);
+      if (tag) { const t = document.createElement('span'); t.className = 'pin-tag'; t.textContent = tag; el.append(t); } // map callout, as Uber's "0.5 miles"
       marks.current[key] = new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(map.current);
     };
     place('dealer', zones?.base, 'pin-dealer', `${name} dealership`);
-    place('customer', point, 'pin-customer', 'Customer address');
+    place('customer', point, 'pin-customer', 'Customer address', pointTag);
     if (point && zones) map.current.fitBounds(bounds({ base: zones.base }, [point]), { padding: pad(90), maxZoom: 13, duration: 600 });
-  }, [zones, point, name]);
+  }, [zones, point, pointTag, name]);
 
   const recenter = () => zones && map.current.fitBounds(bounds(zones), { padding: pad(40), duration: 500 });
   // ring-by-ring swatch for one corridor: the same hue getting darker further out
   const ramp = (id) => `linear-gradient(90deg, ${rings.slice(1).map((r) => shade(corridorColour(id, ids), r.band)).join(', ') || corridorColour(id, ids)})`;
 
   return (
-    <section className={full ? 'map full' : 'map'} aria-label={`Zone map for ${name}`}>
+    <section className={`map${full ? ' full' : ''}${quiet ? ' quiet' : ''}`} aria-label={`Zone map for ${name}`}
+      onPointerDown={wake} onPointerMove={wake} onWheel={wake} onFocus={wake} onKeyDown={wake}>
       <div ref={box} className="map-canvas" />
       {!zones && (
         <div className="map-loading" role="status"><span className="spinner" aria-hidden="true" /><span>Loading zones…</span></div>

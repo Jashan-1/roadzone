@@ -67,7 +67,7 @@ export default function App() {
     if (!d) return;
     const dy = d.y - e.clientY;
     if (Math.abs(dy) > 6) d.moved = true;
-    if (d.moved) { sheet.current.style.transition = 'none'; sheet.current.style.maxHeight = `${Math.max(120, Math.min(window.innerHeight - 140, d.h + dy))}px`; }
+    if (d.moved) { sheet.current.style.transition = 'none'; sheet.current.style.maxHeight = `${Math.max(120, Math.min(window.innerHeight - 76, d.h + dy))}px`; }
   };
   const onHandleUp = (e) => {
     const d = drag.current;
@@ -221,7 +221,7 @@ export default function App() {
               </div>
               <div className="query">
                 <input id="q" ref={input} type="text" value={query} autoComplete="off" autoFocus maxLength={300} enterKeyHint="go"
-                  placeholder="37.4419, -122.1430" aria-describedby="q-help" onChange={(e) => setQuery(e.target.value)} />
+                  placeholder="Address or lat, lon" aria-describedby="q-help" onChange={(e) => setQuery(e.target.value)} />
                 {query && <button type="button" className="round" aria-label="Clear" onClick={reset}><Icon name="close" size={14} width={2.8} /></button>}
               </div>
               <p id="q-help" className="help" hidden={!help}>Paste coordinates from Google Maps (e.g. 37.3230, -121.9700) or type an address. Typed addresses are looked up on OpenStreetMap, an outside website; coordinates stay here.</p>
@@ -322,7 +322,7 @@ export default function App() {
                 </select>
               </div>
               <div className="field">
-                <label htmlFor="opacity">Colour strength ({opacity}%)</label>
+                <label htmlFor="opacity">Colour strength <span>{opacity}%</span></label>
                 <input id="opacity" type="range" min="10" max="100" step="5" value={opacity} onChange={(e) => setOpacity(+e.target.value)} />
               </div>
             </div>
@@ -331,6 +331,7 @@ export default function App() {
 
         <ZoneMap busy={making.settings || making.admin || (status === 'loading' ? 'Checking the address…' : '')} onHelp={() => setAbout(true)} colourBy={colourBy} onColourBy={pickColour} zones={zones} name={loc?.name ?? 'RoadZone'} opacity={opacity} focus={focus} theme={theme}
           point={status === 'done' && r.lon != null ? [r.lon, r.lat] : null}
+          pointTag={status === 'done' ? [r.zone ? `Zone ${r.zone}` : 'Outside', r.miles != null ? `${r.miles} mi` : null].filter(Boolean).join(' · ') : ''}
           highlight={status === 'done' ? r.zone : ''} />
       </main>
 

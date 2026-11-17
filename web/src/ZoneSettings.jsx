@@ -72,7 +72,7 @@ export default function ZoneSettings({ shop, variant, onPick, onMade, onBusy }) 
       </fieldset>
 
       <div className="field">
-        <label htmlFor="smerge">Join very small zones into a neighbour ({draft.min_corridor_cells} map tiles)</label>
+        <label htmlFor="smerge">Join very small zones into a neighbour <span>{draft.min_corridor_cells} map tiles</span></label>
         <input id="smerge" type="range" min="0" max="200" step="10" value={draft.min_corridor_cells} onChange={set('min_corridor_cells')} />
         <div className="ends"><span>Keep every zone</span><span>Fewer, larger zones</span></div>
       </div>
