@@ -39,3 +39,25 @@ WantedBy=multi-user.target
 UNIT
 sudo systemctl daemon-reload && sudo systemctl enable --now roadzone
 sleep 5 && curl -fsS -o /dev/null http://localhost:8501 && echo "RoadZone is up: http://<this server's public IP>:8501"
+
+# Dealer page on 8600, beside Streamlit. web/dist is built on a machine with Node (cd web && npm ci && npm run build)
+# and copied here; the cloud firewall (Oracle security list / AWS security group) must also allow 8600.
+[ -f web/dist/index.html ] || { echo "No web/dist: dealer page skipped"; exit 0; }
+if sudo iptables -S INPUT 2>/dev/null | grep -q REJECT && ! sudo iptables -C INPUT -p tcp --dport 8600 -j ACCEPT 2>/dev/null; then
+  sudo iptables -I INPUT -p tcp --dport 8600 -j ACCEPT
+  command -v netfilter-persistent >/dev/null && sudo netfilter-persistent save
+fi
+sudo tee /etc/systemd/system/roadzone-web.service >/dev/null <<UNIT
+[Unit]
+Description=RoadZone dealer page
+After=network-online.target
+[Service]
+User=$USER
+WorkingDirectory=$PWD
+ExecStart=$PWD/.venv/bin/python -m zonegen serve --port 8600 --host 0.0.0.0
+Restart=always
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl daemon-reload && sudo systemctl enable --now roadzone-web
+sleep 3 && curl -fsS -o /dev/null http://localhost:8600 && echo "Dealer page is up: http://<this server's public IP>:8600"

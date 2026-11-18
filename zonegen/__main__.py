@@ -48,13 +48,14 @@ def main():
     ap = argparse.ArgumentParser(prog="zonegen")
     ap.add_argument("command", choices=["build-tiles", "run", "serve"])
     ap.add_argument("config", type=Path, nargs="?")
-    ap.add_argument("--port", type=int, default=8600, help="serve: port on localhost")
+    ap.add_argument("--port", type=int, default=8600, help="serve: port")
+    ap.add_argument("--host", default="127.0.0.1", help="serve: 0.0.0.0 to accept outside connections")
     ap.add_argument("--fresh", action="store_true", help="discard the probe ledger and start over")
     ap.add_argument("--max-probes", type=int, help="smoke test: evaluate only the nearest N cells")
     a = ap.parse_args()
     if a.command == "serve":
         from .serve import serve
-        serve(a.port)
+        serve(a.port, a.host)
     elif a.config is None:
         ap.error("a config file is required")
     elif a.command == "build-tiles":

@@ -6,7 +6,7 @@ GET  /api/zones?run=<run id>                                zone outlines for th
 GET  /api/jobs, POST /api/runs                              admin: make zones
 anything else                                               the built page in web/dist
 
-shortcut: no login at all, including making zones, and localhost only; add auth before exposing it beyond this machine.
+shortcut: no login at all, including making zones (same as the Streamlit demo); add auth before real dealers use it.
 Served one request at a time on purpose: the router's worker state is per process, not per thread.
 Zone-making jobs run as subprocesses, so they never touch this process's router.
 """
@@ -292,5 +292,5 @@ class Handler(BaseHTTPRequestHandler):
         self._send(*start_run(body))
 
 
-def serve(port: int):
-    HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+def serve(port: int, host: str = "127.0.0.1"):
+    HTTPServer((host, port), Handler).serve_forever()
