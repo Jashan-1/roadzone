@@ -35,7 +35,7 @@ export default function App() {
   const [opacity, setOpacity] = useState(70); // Streamlit's default colour strength
   const [colourBy, setColourBy] = useState(read('rz-colour', 'zones'));
   const pickColour = (c) => { setColourBy(c); write('rz-colour', c); };
-  const [theme, setTheme] = useState(read('rz-theme', null) ?? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+  const [theme, setTheme] = useState(read('rz-theme', null) ?? 'light'); // light unless the user picked dark with the toggle
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
   const flipTheme = () => setTheme((t) => { const next = t === 'dark' ? 'light' : 'dark'; write('rz-theme', next); return next; });
   const [admin, setAdmin] = useState(false);
