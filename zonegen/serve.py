@@ -7,7 +7,7 @@ GET  /api/jobs, POST /api/runs                              admin: make zones
 anything else                                               the built page in web/dist
 
 shortcut: no login at all, including making zones (same as the Streamlit demo); add auth before real dealers use it.
-Served one request at a time on purpose: the router's worker state is per process, not per thread.
+Each connection gets a thread, but API work runs one request at a time (WORK lock): the router's state is per process.
 Zone-making jobs run as subprocesses, so they never touch this process's router.
 """
 import json
@@ -20,7 +20,7 @@ import time
 import uuid
 from collections import Counter
 from functools import lru_cache
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -254,7 +254,12 @@ def static(path: str) -> tuple[int, bytes, str]:
     return 200, f.read_bytes(), mimetypes.guess_type(f.name)[0] or "application/octet-stream"
 
 
+WORK = threading.Lock()  # one API request at a time: the router's worker state is per process, not per thread
+
+
 class Handler(BaseHTTPRequestHandler):
+    timeout = 30  # drop connections that open and send nothing (browser preconnects, scanners)
+
     def _send(self, code: int, body, ctype: str = "application/json"):
         data = body if isinstance(body, bytes) else (body if isinstance(body, str) else json.dumps(body)).encode()
         self.send_response(code)
@@ -271,7 +276,9 @@ class Handler(BaseHTTPRequestHandler):
                   "/api/zones": lambda: zones(args.get("run", "")),
                   "/api/jobs": jobs}
         if url.path in routes:
-            self._send(*routes[url.path]())
+            with WORK:
+                answer = routes[url.path]()
+            self._send(*answer)
         elif url.path.startswith("/api/"):
             self._send(404, {"error": "not found"})
         else:
@@ -289,8 +296,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(400, {"error": "body must be JSON"})
         if not isinstance(body, dict):
             return self._send(400, {"error": "body must be a JSON object"})
-        self._send(*start_run(body))
+        with WORK:
+            answer = start_run(body)
+        self._send(*answer)
+
+
+def server(port: int, host: str = "127.0.0.1"):
+    # threads only so a slow or idle connection can't block the others; the work itself is serialized by WORK
+    return ThreadingHTTPServer((host, port), Handler)
 
 
 def serve(port: int, host: str = "127.0.0.1"):
-    HTTPServer((host, port), Handler).serve_forever()
+    server(port, host).serve_forever()

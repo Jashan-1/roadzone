@@ -168,3 +168,22 @@ def test_each_sizeable_piece_of_a_zone_gets_a_label(monkeypatch):
     out = json.loads(serve._zones("x"))
     serve._zones.cache_clear()
     assert sorted(f["properties"]["cells"] for f in out["labels"]["features"]) == [7, 7]  # lone cell: no label
+
+
+def test_idle_connection_does_not_block_others(tmp_path, monkeypatch):
+    """A connection that opens and sends nothing (browser preconnect, scanner) must not hang the page for everyone."""
+    import socket
+    import threading
+    import urllib.request
+    from zonegen import serve
+    monkeypatch.chdir(tmp_path)
+    srv = serve.server(0)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    port = srv.server_address[1]
+    try:
+        idle = socket.create_connection(("127.0.0.1", port))
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/jobs", timeout=5) as r:
+            assert r.status == 200
+        idle.close()
+    finally:
+        srv.shutdown()
