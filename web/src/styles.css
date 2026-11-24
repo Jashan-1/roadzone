@@ -235,6 +235,12 @@ legend span { font-weight: 400; color: var(--sub); }
 .rename-row { display: flex; gap: 8px; }
 .rename-row input { flex: 1 1 auto; min-width: 0; }
 .rename-row .go { height: auto; padding: 0 18px; font-size: 15px; }
+.road-key { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--sub); }
+.road-key i { width: 22px; height: 6px; border-radius: 3px; flex-shrink: 0; }
+.road-key i.hw { background: #FCE08B; box-shadow: 0 0 0 1.5px #C98F1E; }
+.road-key i.mr { background: #FFFFFF; box-shadow: 0 0 0 1px #BDBDBD; margin-left: 10px; }
+:root[data-theme="dark"] .road-key i.hw { background: #B9A36A; box-shadow: 0 0 0 1.5px #1A1C20; }
+:root[data-theme="dark"] .road-key i.mr { background: #7C828C; box-shadow: none; }
 .legend-note { margin: 0; font-size: 11px; color: var(--sub); line-height: 1.4; }
 .legend { width: 400px; }
 .zone-pop { display: flex; flex-direction: column; gap: 2px; font: 13px/1.4 Inter, system-ui, sans-serif; color: var(--text); }

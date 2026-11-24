@@ -10,13 +10,14 @@ const phone = window.matchMedia('(max-width: 600px)'); // full-screen map under 
 
 /** Keep fitted areas clear of what floats over the map (phone: top controls and the bottom sheet). */
 // Roads drawn over the zone colours, as Google Maps keeps highways readable on top of its shading: motorways in
-// pale yellow with a darker edge, main roads in white, and route shields (I-15, US-101, CA-82) from the style's sprite.
+// and expressways pale yellow with a darker edge, main roads in white, and route shields (I-15, US-101, CA-82) from the style's sprite.
 function addRoads(m, dark, before) {
   if (!m.getSource('openmaptiles')) return;
   const src = { source: 'openmaptiles', 'source-layer': 'transportation' };
   const line = { 'line-cap': 'round', 'line-join': 'round' };
-  const motorway = ['==', ['get', 'class'], 'motorway'];
-  const major = ['match', ['get', 'class'], ['trunk', 'primary'], true, false];
+  // OSM calls expressway stretches 'trunk' (CA-58, US-395): drawn as highways too, or a highway seems to break off
+  const motorway = ['match', ['get', 'class'], ['motorway', 'trunk'], true, false];
+  const major = ['==', ['get', 'class'], 'primary'];
   const w = (a, b, c) => ['interpolate', ['exponential', 1.4], ['zoom'], 6, a, 10, b, 15, c];
   m.addLayer({ id: 'rz-major', type: 'line', ...src, minzoom: 9, filter: major, layout: line, paint: {
     'line-color': dark ? '#7C828C' : '#FFFFFF', 'line-width': w(0.6, 1.6, 7), 'line-opacity': 0.9 } }, before);
@@ -282,6 +283,7 @@ export default function ZoneMap({ busy, zones, name, point, pointTag, highlight,
               </div>
             </>
           )}
+          <p className="road-key"><i className="hw" />Freeways &amp; highways<i className="mr" />Main roads</p>
         </div>
       )}
     </section>
