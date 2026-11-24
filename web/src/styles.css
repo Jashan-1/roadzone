@@ -230,6 +230,11 @@ legend span { font-weight: 400; color: var(--sub); }
 .corridors i { width: 26px; height: 12px; border-radius: 4px; flex-shrink: 0; }
 .corridors b { min-width: 22px; font-size: 13px; }
 .corridors span { color: var(--sub); min-width: 0; }
+.legend-read { margin: 0; font-size: 13px; line-height: 1.4; color: var(--text); padding: 8px 10px; border-radius: 8px; background: var(--field); }
+.legend-read b { font-family: var(--display); font-weight: 800; }
+.rename-row { display: flex; gap: 8px; }
+.rename-row input { flex: 1 1 auto; min-width: 0; }
+.rename-row .go { height: auto; padding: 0 18px; font-size: 15px; }
 .legend-note { margin: 0; font-size: 11px; color: var(--sub); line-height: 1.4; }
 .legend { width: 400px; }
 .zone-pop { display: flex; flex-direction: column; gap: 2px; font: 13px/1.4 Inter, system-ui, sans-serif; color: var(--text); }

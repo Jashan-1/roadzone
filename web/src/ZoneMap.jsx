@@ -9,6 +9,37 @@ const stacked = window.matchMedia('(min-width: 601px) and (max-width: 900px)'); 
 const phone = window.matchMedia('(max-width: 600px)'); // full-screen map under floating controls and a bottom sheet
 
 /** Keep fitted areas clear of what floats over the map (phone: top controls and the bottom sheet). */
+// Roads drawn over the zone colours, as Google Maps keeps highways readable on top of its shading: motorways in
+// pale yellow with a darker edge, main roads in white, and route shields (I-15, US-101, CA-82) from the style's sprite.
+function addRoads(m, dark, before) {
+  if (!m.getSource('openmaptiles')) return;
+  const src = { source: 'openmaptiles', 'source-layer': 'transportation' };
+  const line = { 'line-cap': 'round', 'line-join': 'round' };
+  const motorway = ['==', ['get', 'class'], 'motorway'];
+  const major = ['match', ['get', 'class'], ['trunk', 'primary'], true, false];
+  const w = (a, b, c) => ['interpolate', ['exponential', 1.4], ['zoom'], 6, a, 10, b, 15, c];
+  m.addLayer({ id: 'rz-major', type: 'line', ...src, minzoom: 9, filter: major, layout: line, paint: {
+    'line-color': dark ? '#7C828C' : '#FFFFFF', 'line-width': w(0.6, 1.6, 7), 'line-opacity': 0.9 } }, before);
+  m.addLayer({ id: 'rz-motorway-edge', type: 'line', ...src, minzoom: 6, filter: motorway, layout: line, paint: {
+    'line-color': dark ? '#1A1C20' : '#C98F1E', 'line-width': w(1.8, 3.8, 12) } }, before);
+  m.addLayer({ id: 'rz-motorway', type: 'line', ...src, minzoom: 6, filter: motorway, layout: line, paint: {
+    'line-color': dark ? '#B9A36A' : '#FCE08B', 'line-width': w(0.9, 2.2, 9) } }, before);
+  // the styles' own shields only start at zoom 11-12 (and the dark style has none); ours start where zones are viewed
+  for (const id of ['highway-shield-non-us', 'highway-shield-us-interstate', 'road_shield_us']) {
+    if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', 'none');
+  }
+  const nets = ['us-interstate', 'us-highway', 'us-state'];
+  m.addLayer({ id: 'rz-shields', type: 'symbol', source: 'openmaptiles', 'source-layer': 'transportation_name', minzoom: 7,
+    filter: ['all', ['match', ['get', 'network'], nets, true, false], ['<=', ['get', 'ref_length'], 6],
+      ['any', ['==', ['get', 'network'], 'us-interstate'], ['>=', ['zoom'], 8.5]]],
+    layout: {
+      'icon-image': ['concat', ['get', 'network'], '_', ['get', 'ref_length']], 'icon-rotation-alignment': 'viewport',
+      'text-field': ['to-string', ['get', 'ref']], 'text-font': ['Noto Sans Bold'], 'text-size': 10,
+      'text-rotation-alignment': 'viewport', 'symbol-placement': 'line', 'symbol-spacing': 260,
+      'symbol-sort-key': ['match', ['get', 'network'], 'us-interstate', 0, 'us-highway', 1, 2],
+    } });
+}
+
 function pad(base) {
   if (!phone.matches) return base;
   const sheet = document.querySelector('.panel')?.getBoundingClientRect().height ?? 200;
@@ -116,7 +147,10 @@ export default function ZoneMap({ busy, zones, name, point, pointTag, highlight,
       m.getSource('zones').setData(data);
       m.getSource('zone-labels').setData(zones.labels);
     } else {
-      const firstLabel = m.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+      // under the place names but over every base-map line (the dark style puts a water label before its roads)
+      const layers = m.getStyle().layers;
+      const lastLine = layers.findLastIndex((l) => l.type === 'line');
+      const firstLabel = layers.find((l, i) => i > lastLine && l.type === 'symbol')?.id;
       m.addSource('zones', { type: 'geojson', data });
       m.addLayer({ id: 'zones-fill', type: 'fill', source: 'zones', paint: { 'fill-color': ['get', 'colour'] } }, firstLabel);
       // a crisp border between neighbouring zones, so each zone reads as its own area
@@ -124,6 +158,7 @@ export default function ZoneMap({ busy, zones, name, point, pointTag, highlight,
         'line-color': scheme === 'dark' ? '#000000' : '#FFFFFF',
         'line-width': ['interpolate', ['linear'], ['zoom'], 7, 1.2, 10, 2, 13, 3],
       } }, firstLabel);
+      addRoads(m, scheme === 'dark', firstLabel);
       m.addLayer({ id: 'zone-pick', type: 'line', source: 'zones', paint: { 'line-color': scheme === 'dark' ? '#FFFFFF' : '#000000', 'line-width': 2.5, 'line-dasharray': [2, 2] }, filter: ['==', ['get', 'zone'], ''] });
       // zone codes (1B, 1BD…) on each zone; bigger zones win when labels would overlap
       m.addSource('zone-labels', { type: 'geojson', data: zones.labels });
@@ -179,6 +214,9 @@ export default function ZoneMap({ busy, zones, name, point, pointTag, highlight,
     if (point && zones) map.current.fitBounds(bounds({ base: zones.base }, [point]), { padding: pad(90), maxZoom: 13, duration: 600 });
   }, [zones, point, pointTag, name]);
 
+  // one worked example from this map, so the code reads at a glance: "2G = ring 2 (15–25 mi) on highway G (I-15 north)"
+  const eg = zones?.corridors.find((c) => c.id !== 'HUB' && c.id !== 'L');
+  const egRing = rings.find((r) => r.band === 2) || rings.find((r) => r.band === 1);
   const recenter = () => zones && map.current.fitBounds(bounds(zones), { padding: pad(40), duration: 500 });
   // ring-by-ring swatch for one corridor: the same hue getting darker further out
   const ramp = (id) => `linear-gradient(90deg, ${rings.slice(1).map((r) => shade(corridorColour(id, ids), r.band)).join(', ') || corridorColour(id, ids)})`;
@@ -218,6 +256,9 @@ export default function ZoneMap({ busy, zones, name, point, pointTag, highlight,
               <button type="button" className="legend-hide" aria-label="Hide map key" aria-expanded="true" onClick={() => showKey(false)}><Icon name="chevron" size={16} width={2.2} /></button>
             </span>
           </div>
+          {eg && egRing && (
+            <p className="legend-read"><b>{egRing.band}{eg.id}</b> = ring {egRing.band} ({egRing.range} road mi from the dealer) on highway {eg.id}{eg.road ? ` (${eg.road})` : ''}</p>
+          )}
           {colourBy === 'zones' ? (
             <>
               <ul className="corridors">
@@ -229,7 +270,7 @@ export default function ZoneMap({ busy, zones, name, point, pointTag, highlight,
                 ))}
                 {ids.includes('HUB') && <li><i style={{ background: corridorColour('HUB', ids) }} /><b>0</b><span>Hub · {zones.coverage.hub_miles} mi</span></li>}
               </ul>
-              <p className="legend-note">Darker = further out. 2B is ring 2 on highway B. Click a zone for details.</p>
+              <p className="legend-note">Same colour = same highway, darker = further out. Tap a zone for details.</p>
             </>
           ) : (
             <>

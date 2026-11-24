@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import ZoneMap from './ZoneMap.jsx';
 import Admin from './Admin.jsx';
 import ZoneSettings from './ZoneSettings.jsx';
+import RenameField from './RenameField.jsx';
 import HowItWorks from './HowItWorks.jsx';
 import { Icon } from './Icon.jsx';
 import { roadName, bandRange, bookingNote, reviewNote, script, shortPlace, spoken, verdict, viaZone } from './zone.js';
@@ -90,6 +91,12 @@ export default function App() {
     setRun((r) => (prefer && has(prefer) ? prefer : has(r) ? r : l.at(-1)?.run ?? ''));
   }).catch((e) => setLoadError(e.message));
   useEffect(() => { refreshLocations(); }, []);
+
+  // recent checks are kept per location name, so they follow the location to its new name
+  const renamed = (from, to) => {
+    setHistory((h) => { const next = h.map((x) => (x.shop === from ? { ...x, shop: to } : x)); write('rz-history', next); return next; });
+    return refreshLocations(run);
+  };
 
   const shop = locations?.find((s) => s.variants.some((x) => x.run === run));
   const variant = shop?.variants.find((x) => x.run === run);
@@ -313,6 +320,7 @@ export default function App() {
           <details open={phone || undefined}>
             <summary onClick={(e) => phone && e.preventDefault()}>Map settings <Icon name="chevron" width={2} /></summary>
             <div className="settings">
+              {shop && <RenameField name={shop.name} run={run} onRenamed={renamed} />}
               {shop && <ZoneSettings shop={shop} variant={variant} onPick={setRun} onMade={refreshLocations} onBusy={(m) => setMaking((x) => ({ ...x, settings: m }))} />}
               <div className="field">
                 <label htmlFor="focus">Show</label>

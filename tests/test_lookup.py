@@ -187,3 +187,17 @@ def test_idle_connection_does_not_block_others(tmp_path, monkeypatch):
         idle.close()
     finally:
         srv.shutdown()
+
+
+def test_rename_moves_every_run_of_a_location_and_refuses_clashes(tmp_path, monkeypatch):
+    from zonegen import serve
+    monkeypatch.chdir(tmp_path)
+    _cells_run(tmp_path, "a1", "Aaron Ford")
+    _cells_run(tmp_path, "a2", "Aaron Ford")
+    _cells_run(tmp_path, "b1", "California Auto Group")
+    assert serve.rename({"run": "a1", "name": "  Aaron   Ford Escondido "}) == (200, {"name": "Aaron Ford Escondido"})
+    names = {p.parent.name: p.read_text() for p in (tmp_path / "runs").glob("*/name.txt")}
+    assert names == {"a1": "Aaron Ford Escondido", "a2": "Aaron Ford Escondido", "b1": "California Auto Group"}
+    assert serve.rename({"run": "a2", "name": "California Auto Group"})[0] == 409
+    assert serve.rename({"run": "a2", "name": "   "})[0] == 400
+    assert serve.rename({"run": "../b1", "name": "x"})[0] == 404

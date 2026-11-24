@@ -4,6 +4,7 @@ GET  /zone?run=<run id>&q=<'lat, lon' or street address>   one address -> zone
 GET  /api/locations                                         shops, each with its runs per settings mix
 GET  /api/zones?run=<run id>                                zone outlines for the map
 GET  /api/jobs, POST /api/runs                              admin: make zones
+POST /api/rename {run, name}                                rename the location that run belongs to (all its runs)
 anything else                                               the built page in web/dist
 
 shortcut: no login at all, including making zones (same as the Streamlit demo); add auth before real dealers use it.
@@ -107,6 +108,23 @@ def locations() -> tuple[int, list]:
         shop["run"] = p.name
         shop["variants"][json.dumps(s, sort_keys=True)] = {"run": p.name, **s}
     return 200, [{**s, "variants": list(s["variants"].values())} for s in shops.values()]
+
+
+def rename(body: dict) -> tuple[int, dict]:
+    """Give a location a new name: every run of that location gets it (Streamlit reads the same name.txt)."""
+    rid, name = str(body.get("run", "")), " ".join(str(body.get("name", "")).split())[:80]
+    if not _known(rid):
+        return 404, {"error": "unknown run"}
+    if not name:
+        return 400, {"error": "Give the location a name."}
+    runs = [p for p in Path("runs").glob("*") if (p / "cells.geojson").exists()]
+    old = _shop_name(Path("runs") / rid)
+    if name != old and any(_shop_name(p) == name for p in runs):
+        return 409, {"error": "Another location already has that name."}
+    for p in runs:
+        if _shop_name(p) == old:
+            (p / "name.txt").write_text(name)
+    return 200, {"name": name}
 
 
 def _pieces(cells: list[str]) -> list[list[str]]:
@@ -285,7 +303,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*static(url.path))
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/runs":
+        act = {"/api/runs": start_run, "/api/rename": rename}.get(urlparse(self.path).path)
+        if not act:
             return self._send(404, {"error": "not found"})
         size = int(self.headers.get("Content-Length") or 0)
         if not 0 < size <= MAX_BODY:
@@ -297,7 +316,7 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send(400, {"error": "body must be a JSON object"})
         with WORK:
-            answer = start_run(body)
+            answer = act(body)
         self._send(*answer)
 
 
